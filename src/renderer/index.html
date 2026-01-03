@@ -1,0 +1,135 @@
+﻿<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' https://akashic-games.github.io; img-src 'self' data: http://127.0.0.1:* https://akashic-games.github.io; media-src 'self' http://127.0.0.1:*; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src https://akashic-games.github.io http://127.0.0.1:*"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Namagame Creator</title>
+    <link rel="stylesheet" href="./index.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div>
+          <h1>Namagame Creator</h1>
+          <p>テキストからニコ生ゲームを生成・実行・配布するツール</p>
+        </div>
+        <div class="update-status" id="updateStatus">更新確認中...</div>
+      </header>
+
+      <main>
+        <section id="screen-config" class="screen">
+          <h2>生成AI設定</h2>
+          <p>
+            OpenAIのResponses APIを利用してニコ生ゲームを自動生成します。<br />
+            利用にはAPIキーが必要です。入力されたキーはアプリ内でのみ利用します。
+          </p>
+
+          <div class="form-grid">
+            <label for="modelSelect">モデル</label>
+            <select id="modelSelect"></select>
+
+            <label for="apiKeyInput">APIキー</label>
+            <input
+              id="apiKeyInput"
+              type="password"
+              placeholder="sk-..."
+              autocomplete="off"
+            />
+          </div>
+
+          <button id="configSubmit" class="primary">決定</button>
+          <div id="configError" class="error"></div>
+        </section>
+
+        <section id="screen-generate" class="screen hidden">
+          <h2>ゲーム生成</h2>
+          <p>
+            ゲームの内容・仕様をテキストで入力し、「ゲーム生成」を押してください。<br />
+            生成が完了するとゲーム実行画面へ移動します。
+          </p>
+
+          <div id="historyGenerate" class="history"></div>
+
+          <textarea
+            id="generatePrompt"
+            placeholder="例: 2分間でスコアを稼ぐクリックゲーム。ランキング対応。"
+          ></textarea>
+
+          <div class="button-row">
+            <button id="generateButton" class="primary">ゲーム生成</button>
+            <button id="retryGenerate" class="ghost hidden">再試行</button>
+            <button id="goToConfigGenerate" class="ghost">API設定へ</button>
+          </div>
+          <div id="generateError" class="error"></div>
+        </section>
+
+        <section id="screen-play" class="screen hidden">
+          <div class="screen-row">
+            <div>
+              <h2>ゲーム実行</h2>
+              <p>
+                生成されたニコ生ゲームを試遊できます。<br />
+                右側の入力欄から「ゲーム修正」で再生成できます。
+              </p>
+              <p class="note">
+                ゲームに問題が発生した場合は、以下のリンクからPlaygroundを開き、
+                DevToolsで詳細を確認してください。
+              </p>
+              <a id="playgroundLink" class="link" href="#" target="_blank" rel="noreferrer">
+                Playgroundを開く
+              </a>
+            </div>
+            <div class="split-button" id="downloadSplit">
+              <button id="downloadMain" class="primary">ニコ生ゲームをダウンロード</button>
+              <button id="downloadToggle" class="ghost">▼</button>
+              <div id="downloadMenu" class="menu hidden">
+                <button data-download="nicolive">ニコ生ゲーム</button>
+                <button data-download="project">プロジェクト</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="play-layout">
+            <div class="game-frame">
+              <iframe
+                id="playgroundFrame"
+                title="Nicolive Game"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+              ></iframe>
+              <div id="gamePlaceholder" class="placeholder">
+                ゲームがここに表示されます。
+              </div>
+            </div>
+
+            <div class="side-panel">
+              <div id="historyModify" class="history"></div>
+              <label for="modifyPrompt">ゲーム修正テキスト</label>
+              <textarea
+                id="modifyPrompt"
+                placeholder="改善したい点や追加したい要素を記述してください。"
+              ></textarea>
+              <div class="button-row">
+                <button id="modifyButton" class="primary">ゲーム修正</button>
+                <button id="retryModify" class="ghost hidden">再試行</button>
+              </div>
+              <button id="goToConfig" class="ghost hidden">API設定へ</button>
+              <div id="modifyError" class="error"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <div id="loadingOverlay" class="loading hidden">
+        <div class="spinner"></div>
+        <div id="loadingText">生成中...</div>
+        <button id="cancelGeneration" class="cancel hidden">キャンセル</button>
+      </div>
+    </div>
+
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>
