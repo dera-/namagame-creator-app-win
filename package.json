@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@dera-/namagame-creator-app-win",
   "version": "1.0.0",
   "description": "Nicolive game generator",
@@ -24,6 +24,7 @@
   "dependencies": {
     "@akashic/akashic-cli-commons": "~1.0.3",
     "@akashic/akashic-cli-export": "~2.0.12",
+    "@akashic/akashic-cli-sandbox": "^2.0.7",
     "adm-zip": "^0.5.16",
     "electron-updater": "^6.1.7",
     "openai": "^6.15.0"

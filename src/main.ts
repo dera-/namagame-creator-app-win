@@ -1,4 +1,4 @@
-﻿import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -8,6 +8,8 @@ import crypto from "node:crypto";
 import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createServer as createNetServer } from "node:net";
+import { spawn, type ChildProcess } from "node:child_process";
 import OpenAI from "openai";
 import AdmZip from "adm-zip";
 import { ConsoleLogger } from "@akashic/akashic-cli-commons";
@@ -29,6 +31,7 @@ const MCP_SERVER_URL = process.env.MCP_SERVER_URL;
 const PROJECTS_DIR_NAME = "projects";
 const PLAYGROUND_PATH = "/playground";
 const GAME_PATH = "/game";
+const SANDBOX_PATH = "/sandbox";
 const PLAYGROUND_DIST_DIRNAME = "playground";
 
 const require = createRequire(import.meta.url);
@@ -57,6 +60,12 @@ type LocalServer = {
   server: ReturnType<typeof createServer>;
 };
 
+type SandboxServer = {
+  port: number;
+  process: ChildProcess;
+  projectDir: string;
+};
+
 type GenerationPayload = {
   projectName?: string;
   projectZipBase64?: string;
@@ -68,6 +77,7 @@ let mainWindow: BrowserWindow | null = null;
 let aiConfig: AiConfig | null = null;
 let aiClient: OpenAI | null = null;
 let localServer: LocalServer | null = null;
+let sandboxServer: SandboxServer | null = null;
 const projectRegistry = new Map<string, string>();
 let currentGame: GameInfo = { status: "idle" };
 let conversation: Array<{ role: "user" | "assistant"; content: string }> = [];
@@ -93,8 +103,10 @@ function buildPlaygroundUrl(
     name,
     uri: gameJsonUrl,
   });
-  const encoded = Buffer.from(payload, "utf-8").toString("base64");
-  return `http://127.0.0.1:${port}${PLAYGROUND_PATH}/#/edit/${encoded}?nodl&notab`;
+  const encoded = encodeURIComponent(
+    Buffer.from(payload, "utf-8").toString("base64")
+  );
+  return `http://127.0.0.1:${port}${PLAYGROUND_PATH}/#/snippets/${encoded}?nodl&notab`;
 }
 
 function resolvePlaygroundDir(): string {
@@ -110,7 +122,53 @@ function resolvePlaygroundDir(): string {
   if (fsSync.existsSync(path.join(cwdDist, "index.html"))) {
     return cwdDist;
   }
-  throw new Error("playgroundのビルド済みファイルが見つかりません。");
+  throw new Error("playgroundのビルド成果物が見つかりません。");
+}
+
+function resolveSandboxBin(): string {
+  const binName = process.platform === "win32"
+    ? "akashic-cli-sandbox.cmd"
+    : "akashic-cli-sandbox";
+  const binPath = path.join(app.getAppPath(), "node_modules", ".bin", binName);
+  if (fsSync.existsSync(binPath)) {
+    return binPath;
+  }
+  throw new Error("akashic-sandboxが見つかりません。");
+}
+
+function getAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createNetServer();
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address() as AddressInfo;
+      server.close(() => resolve(address.port));
+    });
+    server.on("error", reject);
+  });
+}
+
+async function startSandboxServer(projectDir: string): Promise<SandboxServer> {
+  if (sandboxServer && sandboxServer.projectDir === projectDir) {
+    return sandboxServer;
+  }
+  if (sandboxServer) {
+    sandboxServer.process.kill();
+    sandboxServer = null;
+  }
+
+  const port = await getAvailablePort();
+  const binPath = resolveSandboxBin();
+  const child = spawn(binPath, ["-p", String(port), projectDir], {
+    stdio: "ignore",
+    shell: process.platform === "win32",
+  });
+  sandboxServer = { port, process: child, projectDir };
+  child.on("exit", () => {
+    if (sandboxServer?.process === child) {
+      sandboxServer = null;
+    }
+  });
+  return sandboxServer;
 }
 
 async function serveStaticFile(
@@ -189,6 +247,18 @@ function startLocalServer(playgroundDir: string): Promise<LocalServer> {
         return;
       }
 
+      if (requestPath.startsWith(`${SANDBOX_PATH}`)) {
+        if (!sandboxServer) {
+          res.writeHead(404);
+          res.end("Not Found");
+          return;
+        }
+        const redirectTarget = `http://127.0.0.1:${sandboxServer.port}/game/`;
+        res.writeHead(302, { Location: redirectTarget });
+        res.end();
+        return;
+      }
+
       res.writeHead(404);
       res.end("Not Found");
     } catch (error) {
@@ -244,58 +314,76 @@ function parseJsonFromText(text: string): GenerationPayload {
     }
   }
 
-  throw new Error("projectDirまたはprojectZipBase64を含むJSONが見つかりませんでした。");
+  throw new Error("projectDirまたはprojectZipBase64がありません。");
 }
 
 function buildDeveloperInstruction(mode: "create" | "modify", targetDir: string): string {
   return `
-あなたはニコ生ゲーム生成専用の技術アシスタントです。
-必ずMCPサーバーのツールを使ってゲームを生成してください。
-出力はJSONのみ。コードブロック不要。
+あなたはニコ生ゲームの生成AIです。
+MCPサーバーを使ってゲームを生成し、次のJSONのみを返してください。
 JSON形式: {"projectName":"...","projectDir":"...","summary":"..."}
-projectDir はプロジェクトを作成した絶対パス。
-summary はユーザー向けの簡潔な説明。
+projectDirは必ず指定されたパスを使用してください。
+summaryは日本語で簡潔にまとめてください。
 
-ゲーム生成前の準備:
-1) search_akashic_docs で、Akashic Engine の最新仕様を確認してください。
-2) 生成先ディレクトリは次のパスに固定する: ${targetDir}
-3) 既存プロジェクトが無ければ init_project を実行
+**開発ガイドライン:**
+1. **情報収集**: まず 'search_akashic_docs' を使用し、実装に必要なAPI（例: 音声再生、当たり判定、乱数生成）の最新仕様やニコ生ゲームの作成方法を確認してください。
+2. **生成先ディレクトリの固定**: 生成先ディレクトリは次のパスに固定してください: ${targetDir}
+3. **プロジェクト作成**: プロジェクトが存在しない場合、 'init_project' を実行してください
   - templateType は ゲームの形式に合わせて以下のように変える
     - ランキング形式: javascript-shin-ichiba-ranking
     - マルチプレイ形式: javascript-multi
     - それ以外: javascript
   - skipNpmInstall は true にする
+  - init_project に失敗した場合は、代わりに init_minimal_template を実行する
+4. **実装**: 'create_game_file' を使用してコードを作成してください。
+  - 以下のようなディレクトリ構造にしてください
+    - script: ゲームロジック (JavaScript / CommonJS)
+    - image: 画像
+    - audio: 音声
+    - text: テキスト
+    - game.json
+  - main.ts (またはmain.js) にロジックを記述します。
+    - 'init_project' や 'init_minimal_template' でテンプレートを生成した場合、main.ts (またはmain.js)の main() 関数の export 方法は変えず、main() 関数の中身を修正してください。
+    - main.ts (またはmain.js)のステップ数が500行を超えるのであれば、エンティティやシーンなどのオブジェクトやutil関数を別ファイルに切り出してください。
+  - ランキングゲームを作成する場合は、「ランキングゲーム | Akashic Engine」(https://akashic-games.github.io/shin-ichiba/ranking/) を参考にしてください。
+  - 'format_with_eslint' を使用して作成したコードを整形してください。
+5. **game.json更新**: 'akashic_scan_asset' を使用してgame.jsonを更新してください。
+6. **ゲームデバッグ**: 'headless_akashic_test' でテストが通ることを確認してください。テストが通らない場合は コードを修正してください。
 
-ゲーム生成:
-- search_akashic_docs で、実装に必要なAPI（例: 音声再生、当たり判定、乱数生成）を都度確認
-- ゲームプロジェクトのファイル構造は以下のようにしてください
-  - script: ソースコード(javascriptファイル)
-  - image: 画像ファイル
-  - audio: 音声ファイル
-  - text: テキストファイル
-  - game.json
-- create_game_file で、ゲームのソースコード を作成してください
-- akashic_scan_asset を使用してgame.jsonを更新してください。
+**コード品質:**
+- 可読性の高いコードを記述してください。
+- 必要なコメントを追加してください。
+- エラーハンドリング（画像のロード待ちなど）を適切に行ってください。
 
-注意:
-- init_project に失敗した場合は、代わりに init_minimal_template を実行する
-- projectDir には ${targetDir} を返す
-- 失敗時もJSONのみで理由を簡潔に返す
-- create_game_file で game.json は更新しないでください
-- JavaScript でコードを書く際は、CommonJS 形式且つ ES2015 以降の記法でコードを作成してください。
+**実装時の注意点:**
 - Akashic Engine v3系のAPIを使用してください。
+- game.json については、何かしら指定がない限り基本的にはテンプレートのままで変更しないでください。
+- Akashic EngineのAPIを使うときはimportを使わず、接頭辞にg.をつけてください。
+- g.Scene#loadedやg.Scene#updateはv3では非推奨です。g.Scene#onLoadやg.Scene#onUpdateを使用してください。また、基本的にはv3で使用可能でも非推奨のAPIは使用しないようにしてください。
+- JavaScriptの場合、CommonJS形式且つES2015以降の記法でコードを作成してください。
+- g.Sceneにageは存在しません。ageを利用する場合はg.game.ageを利用してください。
+- g.gameにonLoad()などのトリガーは存在しません。onLoad()はg.Sceneのメソッドです。
+- g.Labelを使用する場合、特に指定が無ければ g.DynamicFont を生成して、g.Labelのfontプロパティに指定してください。
+  - g.DynamicFont 生成時は、game, size, fontFamily をそれぞれ指定してください。fontFamilyとして以下の文字列のうち、いずれかを使用してください
+    - "sans-serif"
+    - "serif"
+    - "monospace"
+  - フォントデータ(フォント画像、フォントの設定が書かれたテキスト)を指定された場合は、そのデータの g.BitmapFont を生成・使用してください。
 
-今回の目的: ${mode === "create" ? "新規生成" : "既存ゲームの修正"}
+**その他の注意事項:**
+- projectDir には ${targetDir} を返してください。
+- 失敗時もJSONのみで理由を簡潔に返してください。
+
+モード: ${mode == "create" ? "新規作成" : "修正"}
 `;
 }
-
 async function runGeneration(
   prompt: string,
   mode: "create" | "modify",
   targetDir: string
 ): Promise<GenerationPayload> {
   if (!aiClient || !aiConfig) {
-    throw new Error("AI設定が未完了です。");
+    throw new Error("AI設定が未設定です。");
   }
   if (!MCP_SERVER_URL) {
     throw new Error("MCPサーバーURLが未設定です。");
@@ -310,7 +398,7 @@ async function runGeneration(
     const controller = new AbortController();
     currentGenerationController?.abort();
     currentGenerationController = controller;
-    const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 600000); // タイムアウト時間は長めに10分とする
+                const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 600000); // タイムアウト時間: デフォルト10分
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -387,10 +475,10 @@ function normalizeBase64(input: string): string {
 
 function assertZipBuffer(buffer: Buffer): void {
   if (buffer.length < 4) {
-    throw new Error("zipデータが短すぎます。");
+    throw new Error("zipデータが空です。");
   }
   if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
-    throw new Error("zipデータではありません。");
+    throw new Error("zipデータの署名が不正です。");
   }
 }
 
@@ -404,7 +492,7 @@ async function ensureEntryPoint(projectDir: string): Promise<void> {
   try {
     gameJson = JSON.parse(raw) as { main?: string } & Record<string, unknown>;
   } catch {
-    throw new Error("game.jsonが不正なJSONです。");
+    throw new Error("game.jsonが正しいJSONではありません。");
   }
 
   const candidates = [
@@ -564,6 +652,13 @@ app.on("window-all-closed", () => {
   }
 });
 
+app.on("before-quit", () => {
+  if (sandboxServer) {
+    sandboxServer.process.kill();
+    sandboxServer = null;
+  }
+});
+
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
@@ -605,7 +700,7 @@ ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
     }
     return {
       ok: false,
-      errorMessage: "APIキーの確認に失敗しました。ネットワーク設定をご確認ください。",
+      errorMessage: "APIキーの確認に失敗しました。ネットワーク設定を確認してください。",
       errorCode: toErrorCode(error),
     };
   }
@@ -643,7 +738,7 @@ ipcMain.handle(
       const payload = await runGeneration(prompt, request.mode, projectDir);
       if (payload.projectDir) {
         if (path.resolve(payload.projectDir) !== path.resolve(projectDir)) {
-          throw new Error("projectDirが指定と一致しませんでした。");
+          throw new Error("projectDirが指定先と一致しませんでした。");
         }
       } else if (payload.projectZipBase64) {
         const normalizedBase64 = normalizeBase64(payload.projectZipBase64);
@@ -657,17 +752,21 @@ ipcMain.handle(
 
       await ensureEntryPoint(projectDir);
 
+      const sandboxInfo = await startSandboxServer(projectDir);
+
       const playgroundDir = resolvePlaygroundDir();
       const serverInfo = await startLocalServer(playgroundDir);
       projectRegistry.set(projectId, projectDir);
       const gameJsonUrl = `http://127.0.0.1:${serverInfo.port}${GAME_PATH}/${projectId}/game.json`;
       const projectName = payload.projectName || "namagame";
       const playgroundUrl = buildPlaygroundUrl(serverInfo.port, gameJsonUrl, projectName);
+      const debugUrl = `http://127.0.0.1:${serverInfo.port}${SANDBOX_PATH}/`;
 
       currentGame = {
         status: "success",
         projectName,
         playgroundUrl,
+        debugUrl,
         projectDir,
       };
 
@@ -679,7 +778,7 @@ ipcMain.handle(
       return { ok: true, game: currentGame, summary: payload.summary, history: conversation };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        return { ok: false, errorMessage: "キャンセルしました。", errorCode: "canceled" };
+        return { ok: false, errorMessage: "キャンセルされました。", errorCode: "canceled" };
       }
       const errorCode = toErrorCode(error);
       const errorMessage = toErrorMessage(error);
@@ -691,7 +790,7 @@ ipcMain.handle(
 
 ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
   if (!currentGame.projectDir || !currentGame.projectName) {
-    return { ok: false, errorMessage: "ダウンロードできるゲームがありません。" };
+    return { ok: false, errorMessage: "ダウンロードするゲームがありません。" };
   }
 
   const defaultPath = path.join(
@@ -718,7 +817,7 @@ ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
 
 ipcMain.handle("download-nicolive-zip", async (): Promise<DownloadResult> => {
   if (!currentGame.projectDir || !currentGame.projectName) {
-    return { ok: false, errorMessage: "ダウンロードできるゲームがありません。" };
+    return { ok: false, errorMessage: "ダウンロードするゲームがありません。" };
   }
 
   const defaultPath = path.join(

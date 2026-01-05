@@ -1,9 +1,10 @@
-﻿export type GameStatus = "idle" | "generating" | "success" | "error";
+export type GameStatus = "idle" | "generating" | "success" | "error";
 
 export interface GameInfo {
   status: GameStatus;
   projectName?: string;
   playgroundUrl?: string;
+  debugUrl?: string;
   projectDir?: string;
   errorMessage?: string;
   errorCode?: string;

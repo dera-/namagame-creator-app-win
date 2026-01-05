@@ -1,4 +1,4 @@
-﻿type UpdateStatus = {
+type UpdateStatus = {
   state: "idle" | "checking" | "available" | "not-available" | "downloaded" | "error";
   message?: string;
 };
@@ -9,6 +9,7 @@ type GenerateResult = {
     status: "idle" | "generating" | "success" | "error";
     projectName?: string;
     playgroundUrl?: string;
+    debugUrl?: string;
     errorMessage?: string;
     errorCode?: string;
   };
@@ -50,6 +51,8 @@ const modelOptions = [
   "gpt-5-mini",
   "gpt-4.1",
   "gpt-4.1-mini",
+  "gpt-4o",
+  "gpt-4o-mini",
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
@@ -68,7 +71,7 @@ const goToConfigGenerate = document.getElementById("goToConfigGenerate") as HTML
 const generateError = document.getElementById("generateError") as HTMLDivElement;
 const historyGenerate = document.getElementById("historyGenerate") as HTMLDivElement;
 
-const playgroundFrame = document.getElementById("playgroundFrame") as HTMLIFrameElement;
+let playgroundFrame = document.getElementById("playgroundFrame") as HTMLIFrameElement;
 const gamePlaceholder = document.getElementById("gamePlaceholder") as HTMLDivElement;
 const playgroundLink = document.getElementById("playgroundLink") as HTMLAnchorElement;
 const modifyPrompt = document.getElementById("modifyPrompt") as HTMLTextAreaElement;
@@ -142,16 +145,31 @@ async function refreshHistory(): Promise<void> {
   renderHistory();
 }
 
-function showPlayground(url?: string): void {
+function rebuildPlaygroundFrame(): void {
+  const parent = playgroundFrame.parentElement;
+  if (!parent) return;
+  const replacement = document.createElement("iframe");
+  replacement.id = "playgroundFrame";
+  replacement.title = playgroundFrame.title || "Nicolive Game";
+  replacement.className = playgroundFrame.className;
+  parent.replaceChild(replacement, playgroundFrame);
+  playgroundFrame = replacement;
+}
+
+function showPlayground(url?: string, debugUrl?: string): void {
   if (!url) {
     playgroundFrame.src = "";
     gamePlaceholder.style.display = "flex";
     playgroundLink.href = "#";
     return;
   }
-  playgroundFrame.src = url;
+  const cacheBustedUrl = url.includes("?") ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
+  if (playgroundFrame.src === cacheBustedUrl) {
+    playgroundFrame.src = "about:blank";
+  }
+  playgroundFrame.src = cacheBustedUrl;
   gamePlaceholder.style.display = "none";
-  playgroundLink.href = url;
+  playgroundLink.href = debugUrl || url;
 }
 
 function populateModels(): void {
@@ -257,7 +275,10 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
   }
 
   const game = result.game;
-  showPlayground(game?.playgroundUrl);
+  if (mode === "modify") {
+    rebuildPlaygroundFrame();
+  }
+  showPlayground(game?.playgroundUrl, game?.debugUrl);
   if (result.history) {
     historyEntries = result.history;
     renderHistory();
