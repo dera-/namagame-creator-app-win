@@ -26,6 +26,19 @@ type DownloadResult = {
   errorMessage?: string;
 };
 
+type LoadProjectResult = {
+  ok: boolean;
+  game?: {
+    status: "idle" | "generating" | "success" | "error";
+    projectName?: string;
+    playgroundUrl?: string;
+    debugUrl?: string;
+    errorMessage?: string;
+    errorCode?: string;
+  };
+  errorMessage?: string;
+};
+
 declare global {
   interface Window {
     namagame: {
@@ -43,6 +56,8 @@ declare global {
       getHistory: () => Promise<{ history: Array<{ role: "user" | "assistant"; content: string }> }>;
       downloadProjectZip: () => Promise<DownloadResult>;
       downloadNicoliveZip: () => Promise<DownloadResult>;
+      openProjectDir: () => Promise<LoadProjectResult>;
+      loadProjectDir: (sourceDir: string) => Promise<LoadProjectResult>;
       onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void;
     };
   }
@@ -72,6 +87,8 @@ const retryGenerate = document.getElementById("retryGenerate") as HTMLButtonElem
 const goToConfigGenerate = document.getElementById("goToConfigGenerate") as HTMLButtonElement;
 const generateError = document.getElementById("generateError") as HTMLDivElement;
 const historyGenerate = document.getElementById("historyGenerate") as HTMLDivElement;
+const openProjectButton = document.getElementById("openProjectButton") as HTMLButtonElement;
+const projectDrop = document.getElementById("projectDrop") as HTMLDivElement;
 
 let playgroundFrame = document.getElementById("playgroundFrame") as HTMLIFrameElement;
 const gamePlaceholder = document.getElementById("gamePlaceholder") as HTMLDivElement;
@@ -174,6 +191,19 @@ function showPlayground(url?: string, debugUrl?: string): void {
   playgroundFrame.src = cacheBustedUrl;
   gamePlaceholder.style.display = "none";
   playgroundLink.href = debugUrl || url;
+}
+
+async function handleProjectResult(result: LoadProjectResult): Promise<void> {
+  if (!result.ok) {
+    if (result.errorMessage) {
+      setError(generateError, result.errorMessage);
+    }
+    return;
+  }
+  setError(generateError, "");
+  const game = result.game;
+  showPlayground(game?.playgroundUrl, game?.debugUrl);
+  setScreen("play");
 }
 
 // function setDebugOpenMode(value: string | null): void {
@@ -332,6 +362,38 @@ function bindEvents(): void {
 
   generateButton.addEventListener("click", () => {
     runGeneration("create");
+  });
+
+  openProjectButton.addEventListener("click", async () => {
+    if (!window.namagame?.openProjectDir) return;
+    setError(generateError, "");
+    setLoading(true, "プロジェクトを読み込み中...", false);
+    const result = await window.namagame.openProjectDir();
+    setLoading(false, "", false);
+    await handleProjectResult(result);
+  });
+
+  projectDrop.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    projectDrop.classList.add("dragover");
+  });
+
+  projectDrop.addEventListener("dragleave", () => {
+    projectDrop.classList.remove("dragover");
+  });
+
+  projectDrop.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    projectDrop.classList.remove("dragover");
+    if (!window.namagame?.loadProjectDir) return;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    const sourceDir = files[0].path;
+    setError(generateError, "");
+    setLoading(true, "プロジェクトを読み込み中...", false);
+    const result = await window.namagame.loadProjectDir(sourceDir);
+    setLoading(false, "", false);
+    await handleProjectResult(result);
   });
 
   goToConfigGenerate.addEventListener("click", () => {

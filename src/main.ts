@@ -21,6 +21,7 @@ import type {
   GenerateRequest,
   GenerateResult,
   GameInfo,
+  LoadProjectResult,
   UpdateStatus,
 } from "./shared/types.js";
 
@@ -356,6 +357,7 @@ ${modifyPolicy}
   - skipNpmInstall は true にする
   - init_project に失敗した場合は、代わりに init_minimal_template を実行する
 4. **ゲームの仕様・ルール・演出の策定**: 指定されたゲームの仕様、ルール、演出をまとめます。特に指定が無ければ、それも考えてください。
+  - 生成履歴のない既存プロジェクトの場合は、ソースコードやREADMEから仕様・ルール・演出を推定してください
   - 画像素材や音声素材の指定があった場合は、'import_external_assets' を用いて素材のダウンロードとプロジェクトへの配置を行ってください
   - Akashic拡張ライブラリの指定があった場合は、'akashic_install_extension' を用いてプロジェクトにライブラリをインストールしてください
 5. **実装**: 'create_game_file' を使用してコードを作成してください。
@@ -369,7 +371,7 @@ ${modifyPolicy}
     - main.ts (またはmain.js)のステップ数が500行を超えるのであれば、クラスや関数を別ファイルに切り出してください。
       - クラス例: シーン、エンティティ
       - 関数例: util関数、API
-  - ランキングゲームを作成する場合は、「ランキングゲーム | Akashic Engine」(https://akashic-games.github.io/shin-ichiba/ranking/) を参考にして、要求仕様を満たすようにしてください。
+  - ランキングゲームを作成する場合は、[ランキングゲーム | Akashic Engine](https://akashic-games.github.io/shin-ichiba/ranking/) を参考にして、要求仕様を満たすようにしてください。
   - 'format_with_eslint' を使用して作成したコードを整形してください。
   - 必要であれば、'search_akashic_docs' を使用して、Akashic Engine の API 仕様や ニコ生ゲームの要求仕様についての情報を確認してください。
   - game.json については、基本的には指定がない限り修正しないでください。
@@ -396,8 +398,9 @@ ${modifyPolicy}
   - フォントデータ(フォント画像、フォントの設定が書かれたテキスト)を指定された場合は、そのデータの g.BitmapFont を生成・使用してください。
 - g.Sceneを利用する場合、game には g.game を指定してください。
   - シーン内でアセットを使用する場合は、対象のアセットのパスを assetPaths で指定してください。詳細は [アセットを読み込む | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/asset/read-asset.html) を参考にしてください。
-- シーンの切り替えを行う場合は、「シーンを切り替える | Akashic Engine」(https://akashic-games.github.io/reverse-reference/v3/logic/scene.html) を参考にしてください。
-- javascript-shin-ichiba-ranking テンプレートを使用している場合、以下のように対応してください。
+    - 読み込んだアセットの利用方法については [読み込んだアセットを取得する | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/asset/get-asset.html) を参考にしてください。
+- シーンの切り替えを行う場合は、[シーンを切り替える | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/logic/scene.html) を参考にしてください。
+- javascript-shin-ichiba-ranking テンプレートを使用している場合(もしくは script/_bootstrap.js が存在する場合)、以下のように対応してください。
   - game.json の main プロパティを変更しないでください。
   - script/_bootstrap.js は変更・削除しないでください。
   - script/main.js は必ず module.exports.main = function main(param) { ... } の形式でエクスポートしてください。module.exports = function main(...) 形式は禁止します。
@@ -407,7 +410,7 @@ ${modifyPolicy}
     - type: "audio" のアセットの systemId の値を変更する場合
     - ランキングゲームのゲーム時間 (environment.nicolive.preferredSessionParameters.totalTimeLimit) の値を変更する場合
       - totalTimeLimitの単位は秒です(例: totalTimeLimit: 90 の場合、90秒となります)。
-  - 更新する場合は 「game.json の仕様 | Akashic Engine」(https://akashic-games.github.io/reference/manifest/game-json.html) を参考にすること
+  - 更新する場合は [game.json の仕様 | Akashic Engine](https://akashic-games.github.io/reference/manifest/game-json.html) を参考にすること
     - 特に、main キーのパスは ./ が必須なことに注意(例: script/_bootstrap.jsがエントリポイントの時、main: "./script/_bootstrap.js" と記述する必要がある)
     - Akashic Engineのバージョン指定 (environment.sandbox-runtime) とゲームモード指定 (environment.nicolive.supportedModes) は必ず必要なので、これらの値を変更しないでください。
 
@@ -626,6 +629,30 @@ async function createZipFromDir(sourceDir: string, outputPath: string): Promise<
   zip.writeZip(outputPath);
 }
 
+async function prepareGameFromProject(projectDir: string, projectName: string): Promise<GameInfo> {
+  await ensureEntryPoint(projectDir);
+
+  await startSandboxServer(projectDir);
+
+  const playgroundDir = resolvePlaygroundDir();
+  const serverInfo = await startLocalServer(playgroundDir);
+
+  const projectId = crypto.randomUUID();
+  projectRegistry.set(projectId, projectDir);
+
+  const gameJsonUrl = `http://127.0.0.1:${serverInfo.port}${GAME_PATH}/${projectId}/game.json`;
+  const playgroundUrl = buildPlaygroundUrl(serverInfo.port, gameJsonUrl, projectName);
+  const debugUrl = `http://127.0.0.1:${serverInfo.port}${SANDBOX_PATH}/`;
+
+  return {
+    status: "success",
+    projectName,
+    playgroundUrl,
+    debugUrl,
+    projectDir,
+  };
+}
+
 async function createNicoliveZip(projectDir: string, outputPath: string): Promise<void> {
   const logger = new ConsoleLogger({ quiet: true });
   const version = exportPackageJson.version ?? "unknown";
@@ -683,6 +710,29 @@ function toErrorCode(error: unknown): string | undefined {
     return "invalid_api_key";
   }
   return undefined;
+}
+
+async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
+  const stats = await fs.stat(sourceDir).catch(() => null);
+  if (!stats?.isDirectory()) {
+    throw new Error("指定されたパスはディレクトリではありません。");
+  }
+  const sourceGameJson = path.join(sourceDir, "game.json");
+  try {
+    await fs.access(sourceGameJson);
+  } catch {
+    throw new Error("game.jsonが見つかりません。");
+  }
+
+  const projectsDir = await ensureProjectsDir();
+  const projectId = crypto.randomUUID();
+  const targetDir = path.join(projectsDir, projectId);
+  await fs.rm(targetDir, { recursive: true, force: true });
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.cp(sourceDir, targetDir, { recursive: true });
+
+  const projectName = path.basename(sourceDir);
+  return prepareGameFromProject(targetDir, projectName);
 }
 
 function setupAutoUpdater(): void {
@@ -811,6 +861,33 @@ ipcMain.handle("get-history", () => {
   return { history: toUiHistory(conversation) };
 });
 
+ipcMain.handle("open-project-dir", async (): Promise<LoadProjectResult> => {
+  const result = await dialog.showOpenDialog({
+    title: "プロジェクトフォルダを選択",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false };
+  }
+  try {
+    const game = await loadProjectDirectory(result.filePaths[0]);
+    currentGame = game;
+    return { ok: true, game };
+  } catch (error) {
+    return { ok: false, errorMessage: toErrorMessage(error) };
+  }
+});
+
+ipcMain.handle("load-project-dir", async (_event, sourceDir: string): Promise<LoadProjectResult> => {
+  try {
+    const game = await loadProjectDirectory(sourceDir);
+    currentGame = game;
+    return { ok: true, game };
+  } catch (error) {
+    return { ok: false, errorMessage: toErrorMessage(error) };
+  }
+});
+
 ipcMain.handle("open-debug-window", async () => {
   try {
     await openDebugWindow();
@@ -872,25 +949,8 @@ ipcMain.handle(
         throw new Error("projectDirまたはprojectZipBase64がありません。");
       }
 
-      await ensureEntryPoint(projectDir);
-
-      const sandboxInfo = await startSandboxServer(projectDir);
-
-      const playgroundDir = resolvePlaygroundDir();
-      const serverInfo = await startLocalServer(playgroundDir);
-      projectRegistry.set(projectId, projectDir);
-      const gameJsonUrl = `http://127.0.0.1:${serverInfo.port}${GAME_PATH}/${projectId}/game.json`;
       const projectName = payload.projectName || "namagame";
-      const playgroundUrl = buildPlaygroundUrl(serverInfo.port, gameJsonUrl, projectName);
-      const debugUrl = `http://127.0.0.1:${serverInfo.port}${SANDBOX_PATH}/`;
-
-      currentGame = {
-        status: "success",
-        projectName,
-        playgroundUrl,
-        debugUrl,
-        projectDir,
-      };
+      currentGame = await prepareGameFromProject(projectDir, projectName);
 
       conversation.push({ role: "user", content: prompt });
       if (payload.summary) {

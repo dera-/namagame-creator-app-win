@@ -38,6 +38,12 @@ export interface DownloadResult {
   errorMessage?: string;
 }
 
+export interface LoadProjectResult {
+  ok: boolean;
+  game?: GameInfo;
+  errorMessage?: string;
+}
+
 export type UpdateState =
   | "idle"
   | "checking"

@@ -148,6 +148,43 @@ button:active {
   margin: 12px 0;
 }
 
+.project-import {
+  margin: 16px 0 8px;
+  padding: 12px;
+  border: 1px dashed #d8cdbf;
+  border-radius: 12px;
+  background: #fbf8f2;
+}
+
+.project-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.project-import-header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #3b342a;
+}
+
+.drop-zone {
+  border: 1px dashed #cbbda9;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+  color: #6a5f50;
+  background: #fffdf8;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.drop-zone.dragover {
+  border-color: #6e4a17;
+  background: #f3e8d6;
+}
+
 .history .entry {
   padding: 6px 0;
   border-bottom: 1px dashed #e2d7c7;

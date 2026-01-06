@@ -13,6 +13,8 @@ const api = {
   getHistory: () => ipcRenderer.invoke("get-history"),
   downloadProjectZip: () => ipcRenderer.invoke("download-project-zip"),
   downloadNicoliveZip: () => ipcRenderer.invoke("download-nicolive-zip"),
+  openProjectDir: () => ipcRenderer.invoke("open-project-dir"),
+  loadProjectDir: (sourceDir) => ipcRenderer.invoke("load-project-dir", sourceDir),
   onUpdateStatus: (callback) => {
     const listener = (_event, status) => {
       callback(status);
