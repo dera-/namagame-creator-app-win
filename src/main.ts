@@ -355,7 +355,10 @@ ${modifyPolicy}
     - それ以外: javascript
   - skipNpmInstall は true にする
   - init_project に失敗した場合は、代わりに init_minimal_template を実行する
-4. **実装**: 'create_game_file' を使用してコードを作成してください。
+4. **ゲームの仕様・ルール・演出の策定**: 指定されたゲームの仕様、ルール、演出をまとめます。特に指定が無ければ、それも考えてください。
+  - 画像素材や音声素材の指定があった場合は、'import_external_assets' を用いて素材のダウンロードとプロジェクトへの配置を行ってください
+  - Akashic拡張ライブラリの指定があった場合は、'akashic_install_extension' を用いてプロジェクトにライブラリをインストールしてください
+5. **実装**: 'create_game_file' を使用してコードを作成してください。
   - 以下のようなディレクトリ構造にしてください
     - script: ゲームロジック (JavaScript / CommonJS)
     - image: 画像
@@ -370,8 +373,8 @@ ${modifyPolicy}
   - 'format_with_eslint' を使用して作成したコードを整形してください。
   - 必要であれば、'search_akashic_docs' を使用して、Akashic Engine の API 仕様や ニコ生ゲームの要求仕様についての情報を確認してください。
   - game.json については、基本的には指定がない限り修正しないでください。
-5. **game.json更新**: 'akashic_scan_asset' を使用してgame.jsonを更新してください。
-6. **ゲームデバッグ**: 'headless_akashic_test' でテストが通ることを確認してください。テストが通らない場合は コードを修正してください。
+6. **game.json更新**: 'akashic_scan_asset' を使用してgame.jsonを更新してください。
+7. **ゲームデバッグ**: 'headless_akashic_test' でテストが通ることを確認してください。テストが通らない場合は コードを修正してください。
 
 **コード品質:**
 - 可読性の高いコードを記述してください。
