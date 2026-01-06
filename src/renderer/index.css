@@ -50,6 +50,14 @@ body {
   text-decoration: underline;
 }
 
+.debug-open-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+}
+
 .update-status {
   font-size: 12px;
   padding: 6px 10px;

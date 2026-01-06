@@ -8,6 +8,8 @@ const api = {
   modifyGame: (prompt) =>
     ipcRenderer.invoke("generate-game", { prompt, mode: "modify" }),
   cancelGeneration: () => ipcRenderer.invoke("cancel-generation"),
+  openDebugWindow: () => ipcRenderer.invoke("open-debug-window"),
+  openDebugExternal: () => ipcRenderer.invoke("open-debug-external"),
   getHistory: () => ipcRenderer.invoke("get-history"),
   downloadProjectZip: () => ipcRenderer.invoke("download-project-zip"),
   downloadNicoliveZip: () => ipcRenderer.invoke("download-nicolive-zip"),

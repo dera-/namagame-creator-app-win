@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -74,6 +74,7 @@ type GenerationPayload = {
 };
 
 let mainWindow: BrowserWindow | null = null;
+let debugWindow: BrowserWindow | null = null;
 let aiConfig: AiConfig | null = null;
 let aiClient: OpenAI | null = null;
 let localServer: LocalServer | null = null;
@@ -106,7 +107,7 @@ function buildPlaygroundUrl(
   const encoded = encodeURIComponent(
     Buffer.from(payload, "utf-8").toString("base64")
   );
-  return `http://127.0.0.1:${port}${PLAYGROUND_PATH}/#/snippets/${encoded}?nodl&notab`;
+  return `http://127.0.0.1:${port}${PLAYGROUND_PATH}/#/snippets/${encoded}?nodl`;
 }
 
 function resolvePlaygroundDir(): string {
@@ -343,10 +344,13 @@ summaryは日本語で簡潔にまとめてください。
     - text: テキスト
     - game.json
   - main.ts (またはmain.js) にロジックを記述します。
-    - 'init_project' や 'init_minimal_template' でテンプレートを生成した場合、main.ts (またはmain.js)の main() 関数の export 方法は変えず、main() 関数の中身を修正してください。
-    - main.ts (またはmain.js)のステップ数が500行を超えるのであれば、エンティティやシーンなどのオブジェクトやutil関数を別ファイルに切り出してください。
-  - ランキングゲームを作成する場合は、「ランキングゲーム | Akashic Engine」(https://akashic-games.github.io/shin-ichiba/ranking/) を参考にしてください。
+    - main.ts (またはmain.js)のステップ数が500行を超えるのであれば、クラスや関数を別ファイルに切り出してください。
+      - クラス例: シーン、エンティティ
+      - 関数例: util関数、API
+  - ランキングゲームを作成する場合は、「ランキングゲーム | Akashic Engine」(https://akashic-games.github.io/shin-ichiba/ranking/) を参考にして、要求仕様を満たすようにしてください。
   - 'format_with_eslint' を使用して作成したコードを整形してください。
+  - 必要であれば、'search_akashic_docs' を使用して、Akashic Engine の API 仕様や ニコ生ゲームの要求仕様についての情報を確認してください。
+  - game.json については、基本的には指定がない限り修正しないでください。
 5. **game.json更新**: 'akashic_scan_asset' を使用してgame.jsonを更新してください。
 6. **ゲームデバッグ**: 'headless_akashic_test' でテストが通ることを確認してください。テストが通らない場合は コードを修正してください。
 
@@ -357,7 +361,6 @@ summaryは日本語で簡潔にまとめてください。
 
 **実装時の注意点:**
 - Akashic Engine v3系のAPIを使用してください。
-- game.json については、何かしら指定がない限り基本的にはテンプレートのままで変更しないでください。
 - Akashic EngineのAPIを使うときはimportを使わず、接頭辞にg.をつけてください。
 - g.Scene#loadedやg.Scene#updateはv3では非推奨です。g.Scene#onLoadやg.Scene#onUpdateを使用してください。また、基本的にはv3で使用可能でも非推奨のAPIは使用しないようにしてください。
 - JavaScriptの場合、CommonJS形式且つES2015以降の記法でコードを作成してください。
@@ -369,8 +372,15 @@ summaryは日本語で簡潔にまとめてください。
     - "serif"
     - "monospace"
   - フォントデータ(フォント画像、フォントの設定が書かれたテキスト)を指定された場合は、そのデータの g.BitmapFont を生成・使用してください。
+- g.Sceneを利用する場合、game には g.game を指定してください。
+  - シーン内でアセットを使用する場合は、対象のアセットのパスを assetPaths で指定してください。詳細は [アセットを読み込む | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/asset/read-asset.html) を参考にしてください。
+- シーンの切り替えを行う場合は、「シーンを切り替える | Akashic Engine」(https://akashic-games.github.io/reverse-reference/v3/logic/scene.html) を参考にしてください。
+- javascript-shin-ichiba-ranking テンプレートを使用している場合、以下のように対応してください。
+  - script/_bootstrap.js の内容は変更しないでください。
+  - script/main.js は必ず module.exports.main = function main(param) { ... } の形式でエクスポートしてください。module.exports = function main(...) 形式は禁止します。
 
 **その他の注意事項:**
+- ゲームの生成以外が目的である入力テキストはエラー扱いにしてください。
 - projectDir には ${targetDir} を返してください。
 - 失敗時もJSONのみで理由を簡潔に返してください。
 
@@ -523,6 +533,52 @@ async function ensureEntryPoint(projectDir: string): Promise<void> {
   await fs.writeFile(gameJsonPath, JSON.stringify(gameJson, null, 2), "utf-8");
 }
 
+async function readGameSize(projectDir: string): Promise<{ width: number; height: number }> {
+  const gameJsonPath = path.join(projectDir, "game.json");
+  const raw = await fs.readFile(gameJsonPath, "utf-8").catch(() => "");
+  if (!raw) {
+    return { width: 640, height: 480 };
+  }
+  try {
+    const data = JSON.parse(raw) as { width?: number; height?: number };
+    const width = Number(data.width) || 640;
+    const height = Number(data.height) || 480;
+    return { width, height };
+  } catch {
+    return { width: 640, height: 480 };
+  }
+}
+
+async function openDebugWindow(): Promise<void> {
+  if (!currentGame.debugUrl || !currentGame.projectDir) {
+    throw new Error("デバッグ画面を開くための情報がありません。");
+  }
+
+  const { width, height } = await readGameSize(currentGame.projectDir);
+  if (!debugWindow || debugWindow.isDestroyed()) {
+    debugWindow = new BrowserWindow({
+      width,
+      height,
+      useContentSize: true,
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+      },
+    });
+    debugWindow.on("closed", () => {
+      debugWindow = null;
+    });
+  } else {
+    debugWindow.setContentSize(width, height);
+  }
+
+  await debugWindow.loadURL(currentGame.debugUrl);
+  debugWindow.show();
+  debugWindow.focus();
+}
+
 async function createZipFromDir(sourceDir: string, outputPath: string): Promise<void> {
   const zip = new AdmZip();
   zip.addLocalFolder(sourceDir);
@@ -657,6 +713,10 @@ app.on("before-quit", () => {
     sandboxServer.process.kill();
     sandboxServer = null;
   }
+  if (debugWindow) {
+    debugWindow.close();
+    debugWindow = null;
+  }
 });
 
 app.on("activate", () => {
@@ -708,6 +768,27 @@ ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
 
 ipcMain.handle("get-history", () => {
   return { history: conversation };
+});
+
+ipcMain.handle("open-debug-window", async () => {
+  try {
+    await openDebugWindow();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: toErrorMessage(error) };
+  }
+});
+
+ipcMain.handle("open-debug-external", async () => {
+  if (!currentGame.debugUrl) {
+    return { ok: false, errorMessage: "デバッグURLがありません。" };
+  }
+  try {
+    await shell.openExternal(currentGame.debugUrl);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, errorMessage: toErrorMessage(error) };
+  }
 });
 
 ipcMain.handle("cancel-generation", () => {

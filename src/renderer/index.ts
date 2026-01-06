@@ -38,6 +38,8 @@ declare global {
       generateGame: (prompt: string) => Promise<GenerateResult>;
       modifyGame: (prompt: string) => Promise<GenerateResult>;
       cancelGeneration: () => Promise<{ ok: boolean }>;
+      openDebugWindow: () => Promise<{ ok: boolean; errorMessage?: string }>;
+      openDebugExternal: () => Promise<{ ok: boolean; errorMessage?: string }>;
       getHistory: () => Promise<{ history: Array<{ role: "user" | "assistant"; content: string }> }>;
       downloadProjectZip: () => Promise<DownloadResult>;
       downloadNicoliveZip: () => Promise<DownloadResult>;
@@ -74,6 +76,7 @@ const historyGenerate = document.getElementById("historyGenerate") as HTMLDivEle
 let playgroundFrame = document.getElementById("playgroundFrame") as HTMLIFrameElement;
 const gamePlaceholder = document.getElementById("gamePlaceholder") as HTMLDivElement;
 const playgroundLink = document.getElementById("playgroundLink") as HTMLAnchorElement;
+const debugOpenMode = document.getElementById("debugOpenMode") as HTMLSelectElement;
 const modifyPrompt = document.getElementById("modifyPrompt") as HTMLTextAreaElement;
 const modifyButton = document.getElementById("modifyButton") as HTMLButtonElement;
 const retryModify = document.getElementById("retryModify") as HTMLButtonElement;
@@ -95,6 +98,7 @@ let lastGeneratePrompt = "";
 let lastModifyPrompt = "";
 let generationInFlight = false;
 let historyEntries: Array<{ role: "user" | "assistant"; content: string }> = [];
+let debugOpenModeValue: "app" | "external" = "app";
 
 function setScreen(target: "config" | "generate" | "play"): void {
   screenConfig.classList.toggle("hidden", target !== "config");
@@ -171,6 +175,16 @@ function showPlayground(url?: string, debugUrl?: string): void {
   gamePlaceholder.style.display = "none";
   playgroundLink.href = debugUrl || url;
 }
+
+// function setDebugOpenMode(value: string | null): void {
+//   if (value === "external") {
+//     debugOpenModeValue = "external";
+//   } else {
+//     debugOpenModeValue = "app";
+//   }
+//   debugOpenMode.value = debugOpenModeValue;
+//   localStorage.setItem("debugOpenMode", debugOpenModeValue);
+// }
 
 function populateModels(): void {
   modelSelect.innerHTML = "";
@@ -307,6 +321,11 @@ async function handleDownload(type: "nicolive" | "project"): Promise<void> {
 }
 
 function bindEvents(): void {
+  // setDebugOpenMode(localStorage.getItem("debugOpenMode"));
+  // debugOpenMode.addEventListener("change", () => {
+  //   setDebugOpenMode(debugOpenMode.value);
+  // });
+
   configSubmit.addEventListener("click", () => {
     handleConfigSubmit();
   });
@@ -363,6 +382,18 @@ function bindEvents(): void {
       downloadMenu.classList.add("hidden");
       handleDownload(type);
     });
+  });
+
+  playgroundLink.addEventListener("click", async (event) => {
+    if (!window.namagame?.openDebugWindow) return;
+    event.preventDefault();
+    const result =
+      debugOpenModeValue === "external"
+        ? await window.namagame.openDebugExternal()
+        : await window.namagame.openDebugWindow();
+    if (!result.ok) {
+      setError(modifyError, result.errorMessage || "デバッグ画面を開けませんでした。");
+    }
   });
 
   document.addEventListener("click", (event) => {
