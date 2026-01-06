@@ -81,7 +81,13 @@ let localServer: LocalServer | null = null;
 let sandboxServer: SandboxServer | null = null;
 const projectRegistry = new Map<string, string>();
 let currentGame: GameInfo = { status: "idle" };
-let conversation: Array<{ role: "user" | "assistant"; content: string }> = [];
+type ConversationEntry = {
+  role: "user" | "assistant";
+  content: string;
+  summary?: string;
+};
+
+let conversation: Array<ConversationEntry> = [];
 let currentGenerationController: AbortController | null = null;
 
 function getRendererHtmlPath(): string {
@@ -319,12 +325,25 @@ function parseJsonFromText(text: string): GenerationPayload {
 }
 
 function buildDeveloperInstruction(mode: "create" | "modify", targetDir: string): string {
+  const modifyPolicy =
+    mode === "modify"
+      ? `
+【重要: 既存プロジェクトの修正】
+- 既存ファイルを最大限維持し、変更が必要な部分だけを編集すること。
+- 不要なファイルの削除・全面置換は行わないこと。
+- game.json は指定がない限り修正しない。
+- 既存の設計・ゲーム性を尊重し、ユーザーの指示に必要な最小変更で対応すること。
+- 変更点は最小限で明確に。改修対象外のファイルは触らないこと。
+`
+      : "";
+
   return `
 あなたはニコ生ゲームの生成AIです。
 MCPサーバーを使ってゲームを生成し、次のJSONのみを返してください。
 JSON形式: {"projectName":"...","projectDir":"...","summary":"..."}
 projectDirは必ず指定されたパスを使用してください。
 summaryは日本語で簡潔にまとめてください。
+${modifyPolicy}
 
 **開発ガイドライン:**
 1. **情報収集**: まず 'search_akashic_docs' を使用し、実装に必要なAPI（例: 音声再生、当たり判定、乱数生成）の最新仕様やニコ生ゲームの作成方法を確認してください。
@@ -376,8 +395,18 @@ summaryは日本語で簡潔にまとめてください。
   - シーン内でアセットを使用する場合は、対象のアセットのパスを assetPaths で指定してください。詳細は [アセットを読み込む | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/asset/read-asset.html) を参考にしてください。
 - シーンの切り替えを行う場合は、「シーンを切り替える | Akashic Engine」(https://akashic-games.github.io/reverse-reference/v3/logic/scene.html) を参考にしてください。
 - javascript-shin-ichiba-ranking テンプレートを使用している場合、以下のように対応してください。
-  - script/_bootstrap.js の内容は変更しないでください。
+  - game.json の main プロパティを変更しないでください。
+  - script/_bootstrap.js は変更・削除しないでください。
   - script/main.js は必ず module.exports.main = function main(param) { ... } の形式でエクスポートしてください。module.exports = function main(...) 形式は禁止します。
+- game.json は基本的にはテンプレートもしくは既存プロジェクトのままで、修正は行わない。
+  - 自動更新以外で game.json の 修正が必要なのは以下の場合のみ
+    - アセットをグローバルアセットにする("global": trueを付与する)場合
+    - type: "audio" のアセットの systemId の値を変更する場合
+    - ランキングゲームのゲーム時間 (environment.nicolive.preferredSessionParameters.totalTimeLimit) の値を変更する場合
+      - totalTimeLimitの単位は秒です(例: totalTimeLimit: 90 の場合、90秒となります)。
+  - 更新する場合は 「game.json の仕様 | Akashic Engine」(https://akashic-games.github.io/reference/manifest/game-json.html) を参考にすること
+    - 特に、main キーのパスは ./ が必須なことに注意(例: script/_bootstrap.jsがエントリポイントの時、main: "./script/_bootstrap.js" と記述する必要がある)
+    - Akashic Engineのバージョン指定 (environment.sandbox-runtime) とゲームモード指定 (environment.nicolive.supportedModes) は必ず必要なので、これらの値を変更しないでください。
 
 **その他の注意事項:**
 - ゲームの生成以外が目的である入力テキストはエラー扱いにしてください。
@@ -387,11 +416,12 @@ summaryは日本語で簡潔にまとめてください。
 モード: ${mode == "create" ? "新規作成" : "修正"}
 `;
 }
+
 async function runGeneration(
   prompt: string,
   mode: "create" | "modify",
   targetDir: string
-): Promise<GenerationPayload> {
+): Promise<{ payload: GenerationPayload; outputText: string }> {
   if (!aiClient || !aiConfig) {
     throw new Error("AI設定が未設定です。");
   }
@@ -437,7 +467,7 @@ async function runGeneration(
 
       const outputText = response.output_text?.trim() ?? "";
       try {
-        return parseJsonFromText(outputText);
+        return { payload: parseJsonFromText(outputText), outputText };
       } catch (error) {
         if (/init_project/i.test(outputText)) {
           throw new Error("init_project");
@@ -465,6 +495,13 @@ async function runGeneration(
   }
 
   throw lastError ?? new Error("init_project");
+}
+
+function toUiHistory(entries: ConversationEntry[]): Array<{ role: "user" | "assistant"; content: string }> {
+  return entries.map((entry) => ({
+    role: entry.role,
+    content: entry.role === "assistant" ? entry.summary ?? entry.content : entry.content,
+  }));
 }
 
 function normalizeBase64(input: string): string {
@@ -575,6 +612,7 @@ async function openDebugWindow(): Promise<void> {
   }
 
   await debugWindow.loadURL(currentGame.debugUrl);
+  debugWindow.webContents.openDevTools({ mode: "detach" });
   debugWindow.show();
   debugWindow.focus();
 }
@@ -767,7 +805,7 @@ ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
 });
 
 ipcMain.handle("get-history", () => {
-  return { history: conversation };
+  return { history: toUiHistory(conversation) };
 });
 
 ipcMain.handle("open-debug-window", async () => {
@@ -816,7 +854,7 @@ ipcMain.handle(
       await fs.rm(projectDir, { recursive: true, force: true });
       await fs.mkdir(projectDir, { recursive: true });
 
-      const payload = await runGeneration(prompt, request.mode, projectDir);
+      const { payload, outputText } = await runGeneration(prompt, request.mode, projectDir);
       if (payload.projectDir) {
         if (path.resolve(payload.projectDir) !== path.resolve(projectDir)) {
           throw new Error("projectDirが指定先と一致しませんでした。");
@@ -853,10 +891,12 @@ ipcMain.handle(
 
       conversation.push({ role: "user", content: prompt });
       if (payload.summary) {
-        conversation.push({ role: "assistant", content: payload.summary });
+        conversation.push({ role: "assistant", content: outputText, summary: payload.summary });
+      } else {
+        conversation.push({ role: "assistant", content: outputText });
       }
 
-      return { ok: true, game: currentGame, summary: payload.summary, history: conversation };
+      return { ok: true, game: currentGame, summary: payload.summary, history: toUiHistory(conversation) };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         return { ok: false, errorMessage: "キャンセルされました。", errorCode: "canceled" };
