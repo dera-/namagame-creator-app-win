@@ -404,15 +404,16 @@ ${modifyPolicy}
   - game.json の main プロパティを変更しないでください。
   - script/_bootstrap.js は変更・削除しないでください。
   - script/main.js は必ず module.exports.main = function main(param) { ... } の形式でエクスポートしてください。module.exports = function main(...) 形式は禁止します。
-- game.json は基本的にはテンプレートもしくは既存プロジェクトのままで、修正は行わない。
+- game.json は基本的にはテンプレートもしくは既存プロジェクトのままで、変更は行わない。
   - 自動更新以外で game.json の 修正が必要なのは以下の場合のみ
     - アセットをグローバルアセットにする("global": trueを付与する)場合
-    - type: "audio" のアセットの systemId の値を変更する場合
+    - type: "audio" のアセットの "systemId" の値を変更する場合
     - ランキングゲームのゲーム時間 (environment.nicolive.preferredSessionParameters.totalTimeLimit) の値を変更する場合
       - totalTimeLimitの単位は秒です(例: totalTimeLimit: 90 の場合、90秒となります)。
-  - 更新する場合は [game.json の仕様 | Akashic Engine](https://akashic-games.github.io/reference/manifest/game-json.html) を参考にすること
+  - もしも変更が必要な場合は [game.json の仕様 | Akashic Engine](https://akashic-games.github.io/reference/manifest/game-json.html) を参考にすること
     - 特に、main キーのパスは ./ が必須なことに注意(例: script/_bootstrap.jsがエントリポイントの時、main: "./script/_bootstrap.js" と記述する必要がある)
     - Akashic Engineのバージョン指定 (environment.sandbox-runtime) とゲームモード指定 (environment.nicolive.supportedModes) は必ず必要なので、これらの値を変更しないでください。
+    - type: "script" のアセットは必ずグローバルアセットにする("global": trueを付与する)
 
 **その他の注意事項:**
 - ゲームの生成以外が目的である入力テキストはエラー扱いにしてください。
@@ -836,7 +837,11 @@ ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
-      await aiClient.models.list({ signal: controller.signal });
+      const list = await aiClient.models.list({ signal: controller.signal });
+      // const sortedModels = [...list.data].sort(
+      //   (a, b) => (b.created ?? 0) - (a.created ?? 0)
+      // );
+      // console.log(sortedModels);
     } finally {
       clearTimeout(timeoutId);
     }
