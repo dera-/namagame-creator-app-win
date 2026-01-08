@@ -82,6 +82,7 @@ let localServer: LocalServer | null = null;
 let sandboxServer: SandboxServer | null = null;
 const projectRegistry = new Map<string, string>();
 let currentGame: GameInfo = { status: "idle" };
+let currentProjectOrigin: "none" | "generated" | "imported" = "none";
 type ConversationEntry = {
   role: "user" | "assistant";
   content: string;
@@ -419,8 +420,6 @@ ${modifyPolicy}
 - ゲームの生成以外が目的である入力テキストはエラー扱いにしてください。
 - projectDir には ${targetDir} を返してください。
 - 失敗時もJSONのみで理由を簡潔に返してください。
-
-モード: ${mode == "create" ? "新規作成" : "修正"}
 `;
 }
 
@@ -437,7 +436,9 @@ async function runGeneration(
   }
 
   console.log("targetDir", targetDir);
-  const developerInstruction = buildDeveloperInstruction(mode, targetDir);
+  const effectiveMode =
+    mode === "modify" && currentProjectOrigin === "imported" ? "modify" : "create";
+  const developerInstruction = buildDeveloperInstruction(effectiveMode, targetDir);
   const maxAttempts = 3;
   let lastError: unknown = null;
 
@@ -877,6 +878,7 @@ ipcMain.handle("open-project-dir", async (): Promise<LoadProjectResult> => {
   try {
     const game = await loadProjectDirectory(result.filePaths[0]);
     currentGame = game;
+    currentProjectOrigin = "imported";
     return { ok: true, game };
   } catch (error) {
     return { ok: false, errorMessage: toErrorMessage(error) };
@@ -887,6 +889,7 @@ ipcMain.handle("load-project-dir", async (_event, sourceDir: string): Promise<Lo
   try {
     const game = await loadProjectDirectory(sourceDir);
     currentGame = game;
+    currentProjectOrigin = "imported";
     return { ok: true, game };
   } catch (error) {
     return { ok: false, errorMessage: toErrorMessage(error) };
@@ -956,6 +959,7 @@ ipcMain.handle(
 
       const projectName = payload.projectName || "namagame";
       currentGame = await prepareGameFromProject(projectDir, projectName);
+      currentProjectOrigin = "generated";
 
       conversation.push({ role: "user", content: prompt });
       if (payload.summary) {

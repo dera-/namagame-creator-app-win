@@ -65,14 +65,14 @@ declare global {
 
 const modelOptions = [
   "gpt-5.2",
-  "gpt-5.1-codex",
+  // "gpt-5.1-codex",
   "gpt-5.1",
-  "gpt-5-codex",
+  // "gpt-5-codex",
   "gpt-5",
   "gpt-5-mini",
   "gpt-5.2-pro",
   "gpt-5-pro",
-  "gpt-5.1-codex-max"
+  // "gpt-5.1-codex-max"
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
