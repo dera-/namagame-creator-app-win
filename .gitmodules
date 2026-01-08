@@ -1,3 +1,6 @@
 [submodule "playground"]
 	path = playground
 	url = https://github.com/akashic-games/playground
+[submodule "akashic-mcp"]
+	path = akashic-mcp
+	url = https://github.com/dera-/akashic-mcp.git
