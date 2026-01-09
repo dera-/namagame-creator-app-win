@@ -12,6 +12,7 @@ export interface GameInfo {
 
 export interface AiConfig {
   model: string;
+  designModel?: string;
   apiKey: string;
 }
 

@@ -332,6 +332,7 @@ function buildDeveloperInstruction(mode: "create" | "modify", targetDir: string)
       ? `
 【重要: 既存プロジェクトの修正】
 - 既存ファイルを最大限維持し、変更が必要な部分だけを編集すること。
+- 変更対象ファイルを先に列挙し、そのファイルのみを編集すること。
 - 不要なファイルの削除・全面置換は行わないこと。
 - game.json は指定がない限り修正しない。
 - 既存の設計・ゲーム性を尊重し、ユーザーの指示に必要な最小変更で対応すること。
@@ -347,80 +348,79 @@ projectDirは必ず指定されたパスを使用してください。
 summaryは日本語で簡潔にまとめてください。
 ${modifyPolicy}
 
-**開発ガイドライン:**
-1. **情報収集**: まず 'search_akashic_docs' を使用し、実装に必要なAPI（例: 音声再生、当たり判定、乱数生成）の最新仕様やニコ生ゲームの作成方法を確認してください。
-2. **生成先ディレクトリの固定**: 生成先ディレクトリは次のパスに固定してください: ${targetDir}
-3. **プロジェクト作成**: プロジェクトが存在しない場合、 'init_project' を実行してください
-  - templateType は ゲームの形式に合わせて以下のように変える
-    - ランキング形式: javascript-shin-ichiba-ranking
-    - マルチプレイ形式: javascript-multi
-    - それ以外: javascript
-  - skipNpmInstall は true にする
-  - init_project に失敗した場合は、代わりに init_minimal_template を実行する
-4. **ゲームの仕様・ルール・演出の策定**: 指定されたゲームの仕様、ルール、演出をまとめます。特に指定が無ければ、それも考えてください。
-  - 生成履歴のない既存プロジェクトの場合は、ソースコードやREADMEから仕様・ルール・演出を推定してください
-  - 画像素材や音声素材の指定があった場合は、'import_external_assets' を用いて素材のダウンロードとプロジェクトへの配置を行ってください
-  - Akashic拡張ライブラリの指定があった場合は、'akashic_install_extension' を用いてプロジェクトにライブラリをインストールしてください
-5. **実装**: 'create_game_file' を使用してコードを作成してください。
-  - 以下のようなディレクトリ構造にしてください
-    - script: ゲームロジック (JavaScript / CommonJS)
-    - image: 画像
-    - audio: 音声
-    - text: テキスト
-    - game.json
-  - main.ts (またはmain.js) にロジックを記述します。
-    - main.ts (またはmain.js)のステップ数が500行を超えるのであれば、クラスや関数を別ファイルに切り出してください。
-      - クラス例: シーン、エンティティ
-      - 関数例: util関数、API
-  - ランキングゲームを作成する場合は、[ランキングゲーム | Akashic Engine](https://akashic-games.github.io/shin-ichiba/ranking/) を参考にして、要求仕様を満たすようにしてください。
-  - 'format_with_eslint' を使用して作成したコードを整形してください。
-  - 必要であれば、'search_akashic_docs' を使用して、Akashic Engine の API 仕様や ニコ生ゲームの要求仕様についての情報を確認してください。
-  - game.json については、基本的には指定がない限り修正しないでください。
-6. **game.json更新**: 'akashic_scan_asset' を使用してgame.jsonを更新してください。
-7. **ゲームデバッグ**: 'headless_akashic_test' でテストが通ることを確認してください。テストが通らない場合は コードを修正してください。
+テンプレート生成は1回のみです。複数回のテンプレート生成は禁止します。
+game.json が存在する場合は init_project を実行しないでください。
+テンプレート生成は ${targetDir} のみで行い、別のディレクトリは作らないでください。
+TypeScriptテンプレートは禁止です。JavaScriptテンプレートのみを使用してください。
 
-**コード品質:**
-- 可読性の高いコードを記述してください。
-- 必要なコメントを追加してください。
-- エラーハンドリング（画像のロード待ちなど）を適切に行ってください。
-
-**実装時の注意点:**
-- Akashic Engine v3系のAPIを使用してください。
-- Akashic EngineのAPIを使うときはimportを使わず、接頭辞にg.をつけてください。
-- g.Scene#loadedやg.Scene#updateはv3では非推奨です。g.Scene#onLoadやg.Scene#onUpdateを使用してください。また、基本的にはv3で使用可能でも非推奨のAPIは使用しないようにしてください。
-- JavaScriptの場合、CommonJS形式且つES2015以降の記法でコードを作成してください。
-- g.Sceneにageは存在しません。ageを利用する場合はg.game.ageを利用してください。
-- g.gameにonLoad()などのトリガーは存在しません。onLoad()はg.Sceneのメソッドです。
-- g.Labelを使用する場合、特に指定が無ければ g.DynamicFont を生成して、g.Labelのfontプロパティに指定してください。
-  - g.DynamicFont 生成時は、game, size, fontFamily をそれぞれ指定してください。fontFamilyとして以下の文字列のうち、いずれかを使用してください
-    - "sans-serif"
-    - "serif"
-    - "monospace"
-  - フォントデータ(フォント画像、フォントの設定が書かれたテキスト)を指定された場合は、そのデータの g.BitmapFont を生成・使用してください。
-- g.Sceneを利用する場合、game には g.game を指定してください。
-  - シーン内でアセットを使用する場合は、対象のアセットのパスを assetPaths で指定してください。詳細は [アセットを読み込む | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/asset/read-asset.html) を参考にしてください。
-    - 読み込んだアセットの利用方法については [読み込んだアセットを取得する | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/asset/get-asset.html) を参考にしてください。
-- シーンの切り替えを行う場合は、[シーンを切り替える | Akashic Engine](https://akashic-games.github.io/reverse-reference/v3/logic/scene.html) を参考にしてください。
-- javascript-shin-ichiba-ranking テンプレートを使用している場合(もしくは script/_bootstrap.js が存在する場合)、以下のように対応してください。
-  - game.json の main プロパティを変更しないでください。
-  - script/_bootstrap.js は変更・削除しないでください。
-  - script/main.js は必ず module.exports.main = function main(param) { ... } の形式でエクスポートしてください。module.exports = function main(...) 形式は禁止します。
-- game.json は基本的にはテンプレートもしくは既存プロジェクトのままで、変更は行わない。
-  - 自動更新以外で game.json の 修正が必要なのは以下の場合のみ
-    - アセットをグローバルアセットにする("global": trueを付与する)場合
-    - type: "audio" のアセットの "systemId" の値を変更する場合
-    - ランキングゲームのゲーム時間 (environment.nicolive.preferredSessionParameters.totalTimeLimit) の値を変更する場合
-      - totalTimeLimitの単位は秒です(例: totalTimeLimit: 90 の場合、90秒となります)。
-  - もしも変更が必要な場合は [game.json の仕様 | Akashic Engine](https://akashic-games.github.io/reference/manifest/game-json.html) を参考にすること
-    - 特に、main キーのパスは ./ が必須なことに注意(例: script/_bootstrap.jsがエントリポイントの時、main: "./script/_bootstrap.js" と記述する必要がある)
-    - Akashic Engineのバージョン指定 (environment.sandbox-runtime) とゲームモード指定 (environment.nicolive.supportedModes) は必ず必要なので、これらの値を変更しないでください。
-    - type: "script" のアセットは必ずグローバルアセットにする("global": trueを付与する)
-
-**その他の注意事項:**
-- ゲームの生成以外が目的である入力テキストはエラー扱いにしてください。
-- projectDir には ${targetDir} を返してください。
-- 失敗時もJSONのみで理由を簡潔に返してください。
+implement_niconama_game を使って、ニコ生ゲームを実装してください。
 `;
+}
+
+function validateGenerationPayload(payload: GenerationPayload): string[] {
+  const errors: string[] = [];
+  if (!payload.projectName || typeof payload.projectName !== "string") {
+    errors.push("projectNameがありません。");
+  }
+  if (!payload.summary || typeof payload.summary !== "string") {
+    errors.push("summaryがありません。");
+  }
+  const hasDir = typeof payload.projectDir === "string" && payload.projectDir.length > 0;
+  const hasZip =
+    typeof payload.projectZipBase64 === "string" && payload.projectZipBase64.length > 0;
+  if (!hasDir && !hasZip) {
+    errors.push("projectDirまたはprojectZipBase64がありません。");
+  }
+  return errors;
+}
+
+function buildRepairPrompt(originalPrompt: string, errorMessage: string): string {
+  return `${originalPrompt}\n\n以下の検証エラーを修正してください。既存のファイルは可能な限り保持し、必要な差分のみを修正してください。\nエラー: ${errorMessage}`;
+}
+
+async function createResponseWithTemperature(
+  body: Record<string, unknown>,
+  options?: { signal?: AbortSignal }
+): Promise<OpenAI.Responses.Response> {
+  if (!aiClient) {
+    throw new Error("AI設定が未設定です。");
+  }
+  try {
+    return await aiClient.responses.create(body as never, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("Unsupported parameter: 'temperature'")) {
+      const { temperature: _ignored, ...rest } = body;
+      return await aiClient.responses.create(rest as never, options);
+    }
+    throw error;
+  }
+}
+
+async function runDesign(prompt: string): Promise<string> {
+  if (!aiClient || !aiConfig) {
+    throw new Error("AI設定が未設定です。");
+  }
+  if (!MCP_SERVER_URL) {
+    throw new Error("MCPサーバーURLが未設定です。");
+  }
+
+  const response = await createResponseWithTemperature({
+    model: aiConfig.designModel ?? aiConfig.model,
+    tools: [
+      {
+        type: "mcp",
+        server_label: "namagame_generator",
+        server_description: "Nicolive game generator MCP server",
+        server_url: MCP_SERVER_URL,
+        require_approval: "never",
+      },
+    ],
+    input: `design_niconama_game を使って、ゲーム設計文のみを出力してください。\nユーザー入力:\n${prompt}`,
+    temperature: 0.3,
+  });
+
+  return response.output_text?.trim() ?? "";
 }
 
 async function runGeneration(
@@ -442,11 +442,15 @@ async function runGeneration(
   const maxAttempts = 3;
   let lastError: unknown = null;
 
+  const shouldUseDesignModel =
+    aiConfig.designModel && aiConfig.designModel !== aiConfig.model;
+  const designDoc = shouldUseDesignModel ? await runDesign(prompt) : "";
+
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
     currentGenerationController?.abort();
     currentGenerationController = controller;
-                const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 600000); // タイムアウト時間: デフォルト10分
+                const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1200000); // タイムアウト時間: デフォルト20分
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -455,11 +459,12 @@ async function runGeneration(
         .join("\n");
       const inputText = [
         developerInstruction.trim(),
+        designDoc ? `\nゲーム設計文:\n${designDoc}` : "",
         historyText ? `\n直前までの会話:\n${historyText}` : "",
         `\nユーザー入力:\n${prompt}`,
       ].join("\n");
 
-      const response = await aiClient.responses.create({
+      const response = await createResponseWithTemperature({
         model: aiConfig.model,
         tools: [
           {
@@ -471,6 +476,7 @@ async function runGeneration(
           },
         ],
         input: inputText,
+        temperature: 0.3,
       }, { signal: controller.signal });
 
       const outputText = response.output_text?.trim() ?? "";
@@ -935,51 +941,84 @@ ipcMain.handle(
 
     currentGame = { status: "generating" };
 
-    try {
-      const projectsDir = await ensureProjectsDir();
-      const projectId = crypto.randomUUID();
-      const projectDir = path.join(projectsDir, projectId);
-      await fs.rm(projectDir, { recursive: true, force: true });
-      await fs.mkdir(projectDir, { recursive: true });
+    const projectsDir = await ensureProjectsDir();
+    const projectId = crypto.randomUUID();
+    let projectDir = path.join(projectsDir, projectId);
+    await fs.rm(projectDir, { recursive: true, force: true });
+    await fs.mkdir(projectDir, { recursive: true });
 
-      const { payload, outputText } = await runGeneration(prompt, request.mode, projectDir);
-      if (payload.projectDir) {
-        if (path.resolve(payload.projectDir) !== path.resolve(projectDir)) {
-          throw new Error("projectDirが指定先と一致しませんでした。");
+    const maxFixAttempts = 2;
+    let promptForAttempt = prompt;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxFixAttempts; attempt += 1) {
+      try {
+        const { payload, outputText } = await runGeneration(promptForAttempt, request.mode, projectDir);
+        const payloadErrors = validateGenerationPayload(payload);
+        if (payloadErrors.length > 0) {
+          throw new Error(payloadErrors.join(" "));
         }
-      } else if (payload.projectZipBase64) {
-        const normalizedBase64 = normalizeBase64(payload.projectZipBase64);
-        const zipBuffer = Buffer.from(normalizedBase64, "base64");
-        assertZipBuffer(zipBuffer);
-        const zip = new AdmZip(zipBuffer);
-        zip.extractAllTo(projectDir, true);
-      } else {
-        throw new Error("projectDirまたはprojectZipBase64がありません。");
-      }
 
-      const projectName = payload.projectName || "namagame";
-      currentGame = await prepareGameFromProject(projectDir, projectName);
-      currentProjectOrigin = "generated";
+        if (payload.projectDir) {
+          const resolvedTarget = path.resolve(projectDir);
+          const resolvedPayload = path.resolve(payload.projectDir);
+          if (resolvedPayload !== resolvedTarget) {
+            if (!resolvedPayload.startsWith(`${resolvedTarget}${path.sep}`)) {
+              throw new Error("projectDirが指定先と一致しませんでした。");
+            }
+            const nestedGameJson = path.join(resolvedPayload, "game.json");
+            try {
+              await fs.access(nestedGameJson);
+            } catch {
+              throw new Error("projectDirが指定先と一致しませんでした。");
+            }
+            projectDir = resolvedPayload;
+          }
+        } else if (payload.projectZipBase64) {
+          const normalizedBase64 = normalizeBase64(payload.projectZipBase64);
+          const zipBuffer = Buffer.from(normalizedBase64, "base64");
+          assertZipBuffer(zipBuffer);
+          const zip = new AdmZip(zipBuffer);
+          zip.extractAllTo(projectDir, true);
+        } else {
+          throw new Error("projectDirまたはprojectZipBase64がありません。");
+        }
 
-      conversation.push({ role: "user", content: prompt });
-      if (payload.summary) {
-        conversation.push({ role: "assistant", content: outputText, summary: payload.summary });
-      } else {
-        conversation.push({ role: "assistant", content: outputText });
-      }
+        const projectName = payload.projectName || "namagame";
+        currentGame = await prepareGameFromProject(projectDir, projectName);
+        currentProjectOrigin = "generated";
 
-      return { ok: true, game: currentGame, summary: payload.summary, history: toUiHistory(conversation) };
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        return { ok: false, errorMessage: "キャンセルされました。", errorCode: "canceled" };
+        conversation.push({ role: "user", content: prompt });
+        if (payload.summary) {
+          conversation.push({ role: "assistant", content: outputText, summary: payload.summary });
+        } else {
+          conversation.push({ role: "assistant", content: outputText });
+        }
+
+        return { ok: true, game: currentGame, summary: payload.summary, history: toUiHistory(conversation) };
+      } catch (error) {
+        lastError = error;
+        if (error instanceof Error && error.name === "AbortError") {
+          return { ok: false, errorMessage: "キャンセルされました。", errorCode: "canceled" };
+        }
+        if (attempt < maxFixAttempts) {
+          promptForAttempt = buildRepairPrompt(prompt, toErrorMessage(error));
+          continue;
+        }
+        const errorCode = toErrorCode(error);
+        const errorMessage = toErrorMessage(error);
+        currentGame = { status: "error", errorMessage, errorCode };
+        return { ok: false, errorMessage, errorCode };
       }
-      const errorCode = toErrorCode(error);
-      const errorMessage = toErrorMessage(error);
-      currentGame = { status: "error", errorMessage, errorCode };
-      return { ok: false, errorMessage, errorCode };
     }
+
+    const errorCode = toErrorCode(lastError);
+    const errorMessage = toErrorMessage(lastError);
+    currentGame = { status: "error", errorMessage, errorCode };
+    return { ok: false, errorMessage, errorCode };
   }
 );
+
 
 ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
   if (!currentGame.projectDir || !currentGame.projectName) {

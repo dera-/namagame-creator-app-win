@@ -43,7 +43,7 @@ declare global {
   interface Window {
     namagame: {
       getAppInfo: () => Promise<{ version: string; platform: string }>;
-      setAiConfig: (config: { model: string; apiKey: string }) => Promise<{
+      setAiConfig: (config: { model: string; designModel?: string; apiKey: string }) => Promise<{
         ok: boolean;
         errorMessage?: string;
         errorCode?: string;
@@ -63,22 +63,29 @@ declare global {
   }
 }
 
-const modelOptions = [
+const designModelOptions = [
+  "gpt-5-nano",
+  "gpt-5-mini",
+  "gpt-4.1-nano",
+  "gpt-4.1-mini",
+  "gpt-4o-mini",
+  "o4-mini",
+];
+
+const implModelOptions = [
   "gpt-5.2",
-  // "gpt-5.1-codex",
   "gpt-5.1",
-  // "gpt-5-codex",
   "gpt-5",
   "gpt-5-mini",
-  "gpt-5.2-pro",
-  "gpt-5-pro",
-  // "gpt-5.1-codex-max"
+  "gpt-5.1-codex-mini",
+  "gpt-5.1-codex"
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
 const screenGenerate = document.getElementById("screen-generate") as HTMLElement;
 const screenPlay = document.getElementById("screen-play") as HTMLElement;
 
+const designModelSelect = document.getElementById("designModelSelect") as HTMLSelectElement;
 const modelSelect = document.getElementById("modelSelect") as HTMLSelectElement;
 const apiKeyInput = document.getElementById("apiKeyInput") as HTMLInputElement;
 const configSubmit = document.getElementById("configSubmit") as HTMLButtonElement;
@@ -219,23 +226,28 @@ async function handleProjectResult(result: LoadProjectResult): Promise<void> {
 //   localStorage.setItem("debugOpenMode", debugOpenModeValue);
 // }
 
-function populateModels(): void {
-  modelSelect.innerHTML = "";
+function populateModels(
+  select: HTMLSelectElement,
+  label: string,
+  options: string[]
+): void {
+  select.innerHTML = "";
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
-  defaultOption.textContent = "モデルを選択";
-  modelSelect.appendChild(defaultOption);
+  defaultOption.textContent = `${label}を選択`;
+  select.appendChild(defaultOption);
 
-  modelOptions.forEach((model) => {
+  options.forEach((model) => {
     const option = document.createElement("option");
     option.value = model;
     option.textContent = model;
-    modelSelect.appendChild(option);
+    select.appendChild(option);
   });
 }
 
 async function handleConfigSubmit(): Promise<void> {
   setError(configError, "");
+  const designModel = designModelSelect.value.trim();
   const model = modelSelect.value.trim();
   const apiKey = apiKeyInput.value.trim();
 
@@ -245,9 +257,11 @@ async function handleConfigSubmit(): Promise<void> {
   }
 
   if (!model || !apiKey) {
-    setError(configError, "モデルとAPIキーを入力してください。");
+    setError(configError, "実装モデルとAPIキーを入力してください。");
     return;
   }
+  const resolvedDesignModel = designModel || model;
+  designModelSelect.value = resolvedDesignModel;
 
   setLoading(true, "APIキーを確認中...", false);
   const timeoutMs = 12000;
@@ -258,7 +272,11 @@ async function handleConfigSubmit(): Promise<void> {
     setError(configError, "APIキー確認がタイムアウトしました。");
   }, timeoutMs);
 
-  const result = await window.namagame.setAiConfig({ model, apiKey });
+  const result = await window.namagame.setAiConfig({
+    model,
+    designModel: resolvedDesignModel,
+    apiKey,
+  });
   clearTimeout(timeoutId);
   if (didTimeout) {
     return;
@@ -480,7 +498,8 @@ function bindEvents(): void {
   });
 }
 
-populateModels();
+populateModels(designModelSelect, "設計モデル", designModelOptions);
+populateModels(modelSelect, "実装モデル", implModelOptions);
 setScreen("config");
 showPlayground();
 void refreshHistory();
