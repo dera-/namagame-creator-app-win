@@ -345,13 +345,18 @@ function buildDeveloperInstruction(mode: "create" | "modify", targetDir: string)
 MCPサーバーを使ってゲームを生成し、次のJSONのみを返してください。
 JSON形式: {"projectName":"...","projectDir":"...","summary":"..."}
 projectDirは必ず指定されたパスを使用してください。
-summaryは日本語で簡潔にまとめてください。
+summaryは日本語で2〜3行の簡潔な内容にしてください。
 ${modifyPolicy}
 
 テンプレート生成は1回のみです。複数回のテンプレート生成は禁止します。
 game.json が存在する場合は init_project を実行しないでください。
 テンプレート生成は ${targetDir} のみで行い、別のディレクトリは作らないでください。
 TypeScriptテンプレートは禁止です。JavaScriptテンプレートのみを使用してください。
+出力は必ず単一のJSONオブジェクトのみで返してください(説明文や余計な出力は禁止)。
+高速化のため、以下は必要な場合のみ実行してください。
+- format_with_eslint: 大きな変更がある場合のみ
+- akashic_scan_asset: 新規アセットの追加・変更・削除もしくはスクリプトファイルの追加・削除がある場合のみ
+- headless_akashic_test: 新規作成または大きな変更がある場合のみ
 
 implement_niconama_game を使って、ニコ生ゲームを実装してください。
 `;
@@ -417,7 +422,7 @@ async function runDesign(prompt: string): Promise<string> {
       },
     ],
     input: `design_niconama_game を使って、ゲーム設計文のみを出力してください。\nユーザー入力:\n${prompt}`,
-    temperature: 0.3,
+    temperature: 1,
   });
 
   return response.output_text?.trim() ?? "";
@@ -439,12 +444,17 @@ async function runGeneration(
   const effectiveMode =
     mode === "modify" && currentProjectOrigin === "imported" ? "modify" : "create";
   const developerInstruction = buildDeveloperInstruction(effectiveMode, targetDir);
-  const maxAttempts = 3;
+  const maxAttempts = 1;
   let lastError: unknown = null;
 
   const shouldUseDesignModel =
     aiConfig.designModel && aiConfig.designModel !== aiConfig.model;
+  const designStart = Date.now();
   const designDoc = shouldUseDesignModel ? await runDesign(prompt) : "";
+  if (shouldUseDesignModel) {
+    console.log(`[timing] design: ${Date.now() - designStart}ms`);
+    console.log(designDoc);
+  }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
@@ -464,8 +474,15 @@ async function runGeneration(
         `\nユーザー入力:\n${prompt}`,
       ].join("\n");
 
+      const selectedModel =
+        mode === "create" && aiConfig.model.includes("codex")
+          ? "gpt-5.1"
+          : aiConfig.model;
+      if (selectedModel !== aiConfig.model) {
+        console.log(`[model] override create-mode model: ${aiConfig.model} -> ${selectedModel}`);
+      }
       const response = await createResponseWithTemperature({
-        model: aiConfig.model,
+        model: selectedModel,
         tools: [
           {
             type: "mcp",
@@ -476,7 +493,7 @@ async function runGeneration(
           },
         ],
         input: inputText,
-        temperature: 0.3,
+        temperature: 0,
       }, { signal: controller.signal });
 
       const outputText = response.output_text?.trim() ?? "";
@@ -947,13 +964,15 @@ ipcMain.handle(
     await fs.rm(projectDir, { recursive: true, force: true });
     await fs.mkdir(projectDir, { recursive: true });
 
-    const maxFixAttempts = 2;
+    const maxFixAttempts = 1;
     let promptForAttempt = prompt;
     let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= maxFixAttempts; attempt += 1) {
       try {
+        const generationStart = Date.now();
         const { payload, outputText } = await runGeneration(promptForAttempt, request.mode, projectDir);
+        console.log(`[timing] runGeneration: ${Date.now() - generationStart}ms`);
         const payloadErrors = validateGenerationPayload(payload);
         if (payloadErrors.length > 0) {
           throw new Error(payloadErrors.join(" "));
@@ -975,17 +994,21 @@ ipcMain.handle(
             projectDir = resolvedPayload;
           }
         } else if (payload.projectZipBase64) {
+          const extractStart = Date.now();
           const normalizedBase64 = normalizeBase64(payload.projectZipBase64);
           const zipBuffer = Buffer.from(normalizedBase64, "base64");
           assertZipBuffer(zipBuffer);
           const zip = new AdmZip(zipBuffer);
           zip.extractAllTo(projectDir, true);
+          console.log(`[timing] extractZip: ${Date.now() - extractStart}ms`);
         } else {
           throw new Error("projectDirまたはprojectZipBase64がありません。");
         }
 
         const projectName = payload.projectName || "namagame";
+        const prepareStart = Date.now();
         currentGame = await prepareGameFromProject(projectDir, projectName);
+        console.log(`[timing] prepareGame: ${Date.now() - prepareStart}ms`);
         currentProjectOrigin = "generated";
 
         conversation.push({ role: "user", content: prompt });
