@@ -3,10 +3,10 @@ const { contextBridge, ipcRenderer } = require("electron");
 const api = {
   getAppInfo: () => ipcRenderer.invoke("get-app-info"),
   setAiConfig: (config) => ipcRenderer.invoke("set-ai-config", config),
-  generateGame: (prompt) =>
-    ipcRenderer.invoke("generate-game", { prompt, mode: "create" }),
-  modifyGame: (prompt) =>
-    ipcRenderer.invoke("generate-game", { prompt, mode: "modify" }),
+  generateGame: (prompt, options = {}) =>
+    ipcRenderer.invoke("generate-game", { prompt, mode: "create", ...options }),
+  modifyGame: (prompt, options = {}) =>
+    ipcRenderer.invoke("generate-game", { prompt, mode: "modify", ...options }),
   cancelGeneration: () => ipcRenderer.invoke("cancel-generation"),
   openDebugWindow: () => ipcRenderer.invoke("open-debug-window"),
   openDebugExternal: () => ipcRenderer.invoke("open-debug-external"),

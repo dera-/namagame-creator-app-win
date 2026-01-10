@@ -72,6 +72,7 @@ type GenerationPayload = {
   projectZipBase64?: string;
   projectDir?: string;
   summary?: string;
+  detail?: string;
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -83,10 +84,12 @@ let sandboxServer: SandboxServer | null = null;
 const projectRegistry = new Map<string, string>();
 let currentGame: GameInfo = { status: "idle" };
 let currentProjectOrigin: "none" | "generated" | "imported" = "none";
+let lastSuccessfulGame: GameInfo | null = null;
 type ConversationEntry = {
   role: "user" | "assistant";
   content: string;
   summary?: string;
+  hidden?: boolean;
 };
 
 let conversation: Array<ConversationEntry> = [];
@@ -326,7 +329,10 @@ function parseJsonFromText(text: string): GenerationPayload {
   throw new Error("projectDirまたはprojectZipBase64がありません。");
 }
 
-function buildDeveloperInstruction(mode: "create" | "modify", targetDir: string): string {
+function buildDeveloperInstruction(
+  mode: "create" | "modify",
+  targetDir: string
+): string {
   const modifyPolicy =
     mode === "modify"
       ? `
@@ -343,9 +349,10 @@ function buildDeveloperInstruction(mode: "create" | "modify", targetDir: string)
   return `
 あなたはニコ生ゲームの生成AIです。
 MCPサーバーを使ってゲームを生成し、次のJSONのみを返してください。
-JSON形式: {"projectName":"...","projectDir":"...","summary":"..."}
+JSON形式: {"projectName":"...","projectDir":"...","summary":"...","detail":"..."}
 projectDirは必ず指定されたパスを使用してください。
 summaryは日本語で2〜3行の簡潔な内容にしてください。
+detailには修正・生成内容の全文を日本語で入れてください。
 ${modifyPolicy}
 
 テンプレート生成は1回のみです。複数回のテンプレート生成は禁止します。
@@ -370,6 +377,9 @@ function validateGenerationPayload(payload: GenerationPayload): string[] {
   if (!payload.summary || typeof payload.summary !== "string") {
     errors.push("summaryがありません。");
   }
+  if (!payload.detail || typeof payload.detail !== "string") {
+    errors.push("detailがありません。");
+  }
   const hasDir = typeof payload.projectDir === "string" && payload.projectDir.length > 0;
   const hasZip =
     typeof payload.projectZipBase64 === "string" && payload.projectZipBase64.length > 0;
@@ -380,7 +390,10 @@ function validateGenerationPayload(payload: GenerationPayload): string[] {
 }
 
 function buildRepairPrompt(originalPrompt: string, errorMessage: string): string {
-  return `${originalPrompt}\n\n以下の検証エラーを修正してください。既存のファイルは可能な限り保持し、必要な差分のみを修正してください。\nエラー: ${errorMessage}`;
+  return `${originalPrompt}
+
+以下の検証エラーを修正してください。既存のファイルは可能な限り保持し、必要な差分のみを修正してください。
+エラー: ${errorMessage}`;
 }
 
 async function createResponseWithTemperature(
@@ -402,7 +415,12 @@ async function createResponseWithTemperature(
   }
 }
 
-async function runDesign(prompt: string): Promise<string> {
+function normalizeTemperature(value: unknown, fallback = 0.3): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  return Math.min(1, Math.max(0, value));
+}
+
+async function runDesign(prompt: string, temperature: number): Promise<string> {
   if (!aiClient || !aiConfig) {
     throw new Error("AI設定が未設定です。");
   }
@@ -421,8 +439,10 @@ async function runDesign(prompt: string): Promise<string> {
         require_approval: "never",
       },
     ],
-    input: `design_niconama_game を使って、ゲーム設計文のみを出力してください。\nユーザー入力:\n${prompt}`,
-    temperature: 1,
+    input: `design_niconama_game を使って、ゲーム設計文のみを出力してください。
+ユーザー入力:
+${prompt}`,
+    temperature,
   });
 
   return response.output_text?.trim() ?? "";
@@ -431,8 +451,11 @@ async function runDesign(prompt: string): Promise<string> {
 async function runGeneration(
   prompt: string,
   mode: "create" | "modify",
-  targetDir: string
-): Promise<{ payload: GenerationPayload; outputText: string }> {
+  targetDir: string,
+  designTemperature?: number,
+  forbidGameJsonUpdate?: boolean,
+  useDesignModel?: boolean
+): Promise<{ payload: GenerationPayload; outputText: string; designDoc: string }> {
   if (!aiClient || !aiConfig) {
     throw new Error("AI設定が未設定です。");
   }
@@ -448,12 +471,13 @@ async function runGeneration(
   let lastError: unknown = null;
 
   const shouldUseDesignModel =
-    aiConfig.designModel && aiConfig.designModel !== aiConfig.model;
+    useDesignModel !== false && aiConfig.designModel && aiConfig.designModel !== aiConfig.model;
   const designStart = Date.now();
-  const designDoc = shouldUseDesignModel ? await runDesign(prompt) : "";
+  const designTemp = normalizeTemperature(designTemperature, 0.3);
+  const designDoc = shouldUseDesignModel ? await runDesign(prompt, designTemp) : "";
   if (shouldUseDesignModel) {
     console.log(`[timing] design: ${Date.now() - designStart}ms`);
-    console.log(designDoc);
+    // console.log(designDoc);
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -464,15 +488,23 @@ async function runGeneration(
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const historyText = conversation
-        .map((entry) => `${entry.role === "user" ? "User" : "AI"}: ${entry.content}`)
-        .join("\n");
-      const inputText = [
-        developerInstruction.trim(),
-        designDoc ? `\nゲーム設計文:\n${designDoc}` : "",
-        historyText ? `\n直前までの会話:\n${historyText}` : "",
-        `\nユーザー入力:\n${prompt}`,
-      ].join("\n");
+      if (conversation.length === 0) {
+        const trimmedInstruction = developerInstruction.trim();
+        if (trimmedInstruction) {
+          conversation.push({ role: "user", content: trimmedInstruction, hidden: true });
+        }
+      }
+      const inputMessages: OpenAI.Responses.ResponseInput = conversation.map((entry) => ({
+        role: entry.role,
+        content: entry.content,
+      }));
+      if (designDoc) {
+        inputMessages.push({ role: "user", content: `ゲーム設計文:\n${designDoc}` });
+      }
+      const promptContent = forbidGameJsonUpdate
+        ? `${prompt}\n\n[注意] game.jsonはakashic_scan_asset以外で更新しないでください。`
+        : prompt;
+      inputMessages.push({ role: "user", content: promptContent });
 
       const selectedModel =
         mode === "create" && aiConfig.model.includes("codex")
@@ -492,13 +524,13 @@ async function runGeneration(
             require_approval: "never",
           },
         ],
-        input: inputText,
+        input: inputMessages,
         temperature: 0,
       }, { signal: controller.signal });
 
       const outputText = response.output_text?.trim() ?? "";
       try {
-        return { payload: parseJsonFromText(outputText), outputText };
+        return { payload: parseJsonFromText(outputText), outputText, designDoc };
       } catch (error) {
         if (/init_project/i.test(outputText)) {
           throw new Error("init_project");
@@ -529,10 +561,12 @@ async function runGeneration(
 }
 
 function toUiHistory(entries: ConversationEntry[]): Array<{ role: "user" | "assistant"; content: string }> {
-  return entries.map((entry) => ({
-    role: entry.role,
-    content: entry.role === "assistant" ? entry.summary ?? entry.content : entry.content,
-  }));
+  return entries
+    .filter((entry) => !entry.hidden)
+    .map((entry) => ({
+      role: entry.role,
+      content: entry.role === "assistant" ? entry.summary ?? entry.content : entry.content,
+    }));
 }
 
 function normalizeBase64(input: string): string {
@@ -549,6 +583,85 @@ function normalizeBase64(input: string): string {
     value = value.padEnd(value.length + (4 - padding), "=");
   }
   return value;
+}
+
+type GameJson = {
+  main?: string;
+  assets?: Record<string, { type?: string }>;
+  environment?: {
+    "sandbox-runtime"?: string;
+    nicolive?: {
+      supportedModes?: string[];
+    };
+  };
+};
+
+async function readGameJsonIfExists(projectDir: string): Promise<GameJson | null> {
+  const gameJsonPath = path.join(projectDir, "game.json");
+  const raw = await fs.readFile(gameJsonPath, "utf-8").catch(() => "");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as GameJson;
+  } catch {
+    return null;
+  }
+}
+
+function validateGameJson(gameJson: GameJson): string[] {
+  const errors: string[] = [];
+  if (!gameJson.main || typeof gameJson.main !== "string") {
+    errors.push("game.jsonのmainがありません。");
+  }
+  if (!gameJson.assets || typeof gameJson.assets !== "object") {
+    errors.push("game.jsonのassetsがありません。");
+    return errors;
+  }
+
+  const assetKeys = Object.keys(gameJson.assets);
+  if (assetKeys.length === 0) {
+    errors.push("game.jsonのassetsが空です。");
+  }
+
+  if (gameJson.main) {
+    const mainKey = gameJson.main.replace(/^\.\//, "");
+    const mainAsset = gameJson.assets[mainKey];
+    if (!mainAsset) {
+      errors.push("mainに対応するassetsが見つかりません。");
+    } else if (mainAsset.type && mainAsset.type !== "script") {
+      errors.push("mainに対応するassetsのtypeがscriptではありません。");
+    }
+  }
+
+  if (!gameJson.environment?.["sandbox-runtime"]) {
+    errors.push("environment.sandbox-runtimeがありません。");
+  }
+  if (!gameJson.environment?.nicolive?.supportedModes) {
+    errors.push("environment.nicolive.supportedModesがありません。");
+  }
+
+  return errors;
+}
+
+async function guardGameJsonAfterModify(
+  previous: GameJson | null,
+  projectDir: string
+): Promise<{ restored: boolean; errors: string[] }> {
+  const current = await readGameJsonIfExists(projectDir);
+  if (!current) {
+    console.warn("game.jsonが読み込めませんでした。");
+    return { restored: false, errors: ["missing"] };
+  }
+  const errors = validateGameJson(current);
+  if (errors.length === 0) return { restored: false, errors: [] };
+
+  if (previous) {
+    const gameJsonPath = path.join(projectDir, "game.json");
+    await fs.writeFile(gameJsonPath, JSON.stringify(previous, null, 2), "utf-8");
+    console.warn(`game.jsonを復元しました: ${errors.join(" ")}`);
+    return { restored: true, errors };
+  }
+  console.warn(`game.jsonの検証に失敗しました: ${errors.join(" ")}`);
+  return { restored: false, errors };
 }
 
 function assertZipBuffer(buffer: Buffer): void {
@@ -676,6 +789,16 @@ async function prepareGameFromProject(projectDir: string, projectName: string): 
     debugUrl,
     projectDir,
   };
+}
+
+function getDownloadableGame(): GameInfo | null {
+  if (currentGame.projectDir && currentGame.projectName) {
+    return currentGame;
+  }
+  if (lastSuccessfulGame?.projectDir && lastSuccessfulGame.projectName) {
+    return lastSuccessfulGame;
+  }
+  return null;
 }
 
 async function createNicoliveZip(projectDir: string, outputPath: string): Promise<void> {
@@ -901,6 +1024,7 @@ ipcMain.handle("open-project-dir", async (): Promise<LoadProjectResult> => {
   try {
     const game = await loadProjectDirectory(result.filePaths[0]);
     currentGame = game;
+    lastSuccessfulGame = game;
     currentProjectOrigin = "imported";
     return { ok: true, game };
   } catch (error) {
@@ -912,6 +1036,7 @@ ipcMain.handle("load-project-dir", async (_event, sourceDir: string): Promise<Lo
   try {
     const game = await loadProjectDirectory(sourceDir);
     currentGame = game;
+    lastSuccessfulGame = game;
     currentProjectOrigin = "imported";
     return { ok: true, game };
   } catch (error) {
@@ -956,13 +1081,27 @@ ipcMain.handle(
       return { ok: false, errorMessage: "テキストを入力してください。" };
     }
 
-    currentGame = { status: "generating" };
+    const previousGameJson =
+      request.mode === "modify" && currentGame.projectDir
+        ? await readGameJsonIfExists(currentGame.projectDir)
+        : null;
 
-    const projectsDir = await ensureProjectsDir();
-    const projectId = crypto.randomUUID();
-    let projectDir = path.join(projectsDir, projectId);
-    await fs.rm(projectDir, { recursive: true, force: true });
-    await fs.mkdir(projectDir, { recursive: true });
+
+    let projectDir = "";
+    if (request.mode === "modify") {
+      if (!currentGame.projectDir) {
+        return { ok: false, errorMessage: "修正対象のゲームが見つかりません。" };
+      }
+      projectDir = currentGame.projectDir;
+    } else {
+      const projectsDir = await ensureProjectsDir();
+      const projectId = crypto.randomUUID();
+      projectDir = path.join(projectsDir, projectId);
+      await fs.rm(projectDir, { recursive: true, force: true });
+      await fs.mkdir(projectDir, { recursive: true });
+    }
+
+    currentGame = { status: "generating" };
 
     const maxFixAttempts = 1;
     let promptForAttempt = prompt;
@@ -971,8 +1110,16 @@ ipcMain.handle(
     for (let attempt = 1; attempt <= maxFixAttempts; attempt += 1) {
       try {
         const generationStart = Date.now();
-        const { payload, outputText } = await runGeneration(promptForAttempt, request.mode, projectDir);
+        const { payload, outputText, designDoc } = await runGeneration(
+          promptForAttempt,
+          request.mode,
+          projectDir,
+          request.designTemperature,
+          request.forbidGameJsonUpdate,
+          request.useDesignModel
+        );
         console.log(`[timing] runGeneration: ${Date.now() - generationStart}ms`);
+        // console.log(outputText);
         const payloadErrors = validateGenerationPayload(payload);
         if (payloadErrors.length > 0) {
           throw new Error(payloadErrors.join(" "));
@@ -1006,19 +1153,41 @@ ipcMain.handle(
         }
 
         const projectName = payload.projectName || "namagame";
+        let warningMessage: string | undefined;
+        if (request.mode === "modify") {
+          const guardResult = await guardGameJsonAfterModify(previousGameJson, projectDir);
+          if (guardResult.restored) {
+            warningMessage = "game.jsonの内容が不正だったため、元のgame.jsonに復元して続行しました。";
+          }
+        }
         const prepareStart = Date.now();
         currentGame = await prepareGameFromProject(projectDir, projectName);
+        lastSuccessfulGame = currentGame;
         console.log(`[timing] prepareGame: ${Date.now() - prepareStart}ms`);
         currentProjectOrigin = "generated";
 
+        if (designDoc) {
+          conversation.push({
+            role: "user",
+            content: `ゲーム設計文:\n${designDoc}`,
+            hidden: true,
+          });
+        }
         conversation.push({ role: "user", content: prompt });
+        const assistantContent = payload.detail?.trim() || outputText;
         if (payload.summary) {
-          conversation.push({ role: "assistant", content: outputText, summary: payload.summary });
+          conversation.push({ role: "assistant", content: assistantContent, summary: payload.summary });
         } else {
-          conversation.push({ role: "assistant", content: outputText });
+          conversation.push({ role: "assistant", content: assistantContent });
         }
 
-        return { ok: true, game: currentGame, summary: payload.summary, history: toUiHistory(conversation) };
+        return {
+          ok: true,
+          game: currentGame,
+          summary: payload.summary,
+          history: toUiHistory(conversation),
+          warningMessage,
+        };
       } catch (error) {
         lastError = error;
         if (error instanceof Error && error.name === "AbortError") {
@@ -1044,13 +1213,14 @@ ipcMain.handle(
 
 
 ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
-  if (!currentGame.projectDir || !currentGame.projectName) {
+  const targetGame = getDownloadableGame();
+  if (!targetGame?.projectDir || !targetGame.projectName) {
     return { ok: false, errorMessage: "ダウンロードするゲームがありません。" };
   }
 
   const defaultPath = path.join(
     app.getPath("downloads"),
-    `${currentGame.projectName}.zip`
+    `${targetGame.projectName}.zip`
   );
   const result = await dialog.showSaveDialog({
     title: "プロジェクトを保存",
@@ -1063,7 +1233,7 @@ ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
   }
 
   try {
-    await createZipFromDir(currentGame.projectDir, result.filePath);
+    await createZipFromDir(targetGame.projectDir, result.filePath);
     return { ok: true, path: result.filePath };
   } catch (error) {
     return { ok: false, errorMessage: toErrorMessage(error) };
@@ -1071,13 +1241,14 @@ ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
 });
 
 ipcMain.handle("download-nicolive-zip", async (): Promise<DownloadResult> => {
-  if (!currentGame.projectDir || !currentGame.projectName) {
+  const targetGame = getDownloadableGame();
+  if (!targetGame?.projectDir || !targetGame.projectName) {
     return { ok: false, errorMessage: "ダウンロードするゲームがありません。" };
   }
 
   const defaultPath = path.join(
     app.getPath("downloads"),
-    `${currentGame.projectName}-nicolive.zip`
+    `${targetGame.projectName}-nicolive.zip`
   );
   const result = await dialog.showSaveDialog({
     title: "ニコ生ゲーム用に保存",
@@ -1090,7 +1261,7 @@ ipcMain.handle("download-nicolive-zip", async (): Promise<DownloadResult> => {
   }
 
   try {
-    await createNicoliveZip(currentGame.projectDir, result.filePath);
+    await createNicoliveZip(targetGame.projectDir, result.filePath);
     return { ok: true, path: result.filePath };
   } catch (error) {
     return { ok: false, errorMessage: toErrorMessage(error) };

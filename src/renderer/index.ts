@@ -15,6 +15,7 @@ type GenerateResult = {
   };
   summary?: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  warningMessage?: string;
   errorMessage?: string;
   errorCode?: string;
 };
@@ -48,8 +49,14 @@ declare global {
         errorMessage?: string;
         errorCode?: string;
       }>;
-      generateGame: (prompt: string) => Promise<GenerateResult>;
-      modifyGame: (prompt: string) => Promise<GenerateResult>;
+      generateGame: (
+        prompt: string,
+        options?: { designTemperature?: number; forbidGameJsonUpdate?: boolean; useDesignModel?: boolean }
+      ) => Promise<GenerateResult>;
+      modifyGame: (
+        prompt: string,
+        options?: { designTemperature?: number; forbidGameJsonUpdate?: boolean; useDesignModel?: boolean }
+      ) => Promise<GenerateResult>;
       cancelGeneration: () => Promise<{ ok: boolean }>;
       openDebugWindow: () => Promise<{ ok: boolean; errorMessage?: string }>;
       openDebugExternal: () => Promise<{ ok: boolean; errorMessage?: string }>;
@@ -99,6 +106,9 @@ const generateError = document.getElementById("generateError") as HTMLDivElement
 const historyGenerate = document.getElementById("historyGenerate") as HTMLDivElement;
 const openProjectButton = document.getElementById("openProjectButton") as HTMLButtonElement;
 const projectDrop = document.getElementById("projectDrop") as HTMLDivElement;
+const designTempGenerate = document.getElementById("designTempGenerate") as HTMLInputElement;
+const designTempGenerateValue = document.getElementById("designTempGenerateValue") as HTMLSpanElement;
+const forbidGameJsonGenerate = document.getElementById("forbidGameJsonGenerate") as HTMLInputElement;
 
 let playgroundFrame = document.getElementById("playgroundFrame") as HTMLIFrameElement;
 const gamePlaceholder = document.getElementById("gamePlaceholder") as HTMLDivElement;
@@ -110,6 +120,11 @@ const retryModify = document.getElementById("retryModify") as HTMLButtonElement;
 const modifyError = document.getElementById("modifyError") as HTMLDivElement;
 const goToConfig = document.getElementById("goToConfig") as HTMLButtonElement;
 const historyModify = document.getElementById("historyModify") as HTMLDivElement;
+const designTempModify = document.getElementById("designTempModify") as HTMLInputElement;
+const designTempModifyValue = document.getElementById("designTempModifyValue") as HTMLSpanElement;
+const forbidGameJsonModify = document.getElementById("forbidGameJsonModify") as HTMLInputElement;
+const useDesignModelGenerate = document.getElementById("useDesignModelGenerate") as HTMLInputElement;
+const useDesignModelModify = document.getElementById("useDesignModelModify") as HTMLInputElement;
 
 const downloadMain = document.getElementById("downloadMain") as HTMLButtonElement;
 const downloadToggle = document.getElementById("downloadToggle") as HTMLButtonElement;
@@ -126,6 +141,9 @@ let lastModifyPrompt = "";
 let generationInFlight = false;
 let historyEntries: Array<{ role: "user" | "assistant"; content: string }> = [];
 let debugOpenModeValue: "app" | "external" = "app";
+let designTemperature = 1;
+let forbidGameJsonUpdate = false;
+let useDesignModel = true;
 
 function setScreen(target: "config" | "generate" | "play"): void {
   screenConfig.classList.toggle("hidden", target !== "config");
@@ -165,6 +183,35 @@ function renderHistory(): void {
   };
   render(historyGenerate);
   render(historyModify);
+}
+
+function setDesignTemperature(value: number): void {
+  const normalized = Math.min(1, Math.max(0, value));
+  designTemperature = normalized;
+  const display = normalized.toFixed(2);
+  designTempGenerate.value = String(normalized);
+  designTempGenerateValue.textContent = display;
+  designTempModify.value = String(normalized);
+  designTempModifyValue.textContent = display;
+  const percent = Math.round(normalized * 100);
+  const fill = `linear-gradient(90deg, #4c2e05 ${percent}%, #e6ddcf ${percent}%)`;
+  designTempGenerate.style.background = fill;
+  designTempModify.style.background = fill;
+  localStorage.setItem("designTemperature", String(normalized));
+}
+
+function setForbidGameJsonUpdate(checked: boolean): void {
+  forbidGameJsonUpdate = checked;
+  forbidGameJsonGenerate.checked = checked;
+  forbidGameJsonModify.checked = checked;
+  localStorage.setItem("forbidGameJsonUpdate", checked ? "1" : "0");
+}
+
+function setUseDesignModel(checked: boolean): void {
+  useDesignModel = checked;
+  useDesignModelGenerate.checked = checked;
+  useDesignModelModify.checked = checked;
+  localStorage.setItem("useDesignModel", checked ? "1" : "0");
 }
 
 async function refreshHistory(): Promise<void> {
@@ -314,10 +361,15 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
 
   generationInFlight = true;
   setLoading(true, loadingMessage, true);
+  const requestOptions = {
+    designTemperature,
+    forbidGameJsonUpdate,
+    useDesignModel,
+  };
   const result =
     mode === "create"
-      ? await window.namagame.generateGame(prompt)
-      : await window.namagame.modifyGame(prompt);
+      ? await window.namagame.generateGame(prompt, requestOptions)
+      : await window.namagame.modifyGame(prompt, requestOptions);
   generationInFlight = false;
   setLoading(false, "", false);
 
@@ -348,6 +400,11 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
     historyEntries = result.history;
     renderHistory();
   }
+  if (result.warningMessage) {
+    setError(targetError, result.warningMessage);
+  } else {
+    setError(targetError, "");
+  }
   if (mode === "create") {
     setScreen("play");
   }
@@ -372,6 +429,31 @@ async function handleDownload(type: "nicolive" | "project"): Promise<void> {
 }
 
 function bindEvents(): void {
+  const savedTemp = Number(localStorage.getItem("designTemperature"));
+  setDesignTemperature(Number.isFinite(savedTemp) ? savedTemp : 1);
+  const savedForbid = localStorage.getItem("forbidGameJsonUpdate");
+  setForbidGameJsonUpdate(savedForbid === "1");
+  const savedUseDesignModel = localStorage.getItem("useDesignModel");
+  setUseDesignModel(savedUseDesignModel !== "0");
+
+  designTempGenerate.addEventListener("input", () => {
+    setDesignTemperature(Number(designTempGenerate.value));
+  });
+  designTempModify.addEventListener("input", () => {
+    setDesignTemperature(Number(designTempModify.value));
+  });
+  forbidGameJsonGenerate.addEventListener("change", () => {
+    setForbidGameJsonUpdate(forbidGameJsonGenerate.checked);
+  });
+  forbidGameJsonModify.addEventListener("change", () => {
+    setForbidGameJsonUpdate(forbidGameJsonModify.checked);
+  });
+  useDesignModelGenerate.addEventListener("change", () => {
+    setUseDesignModel(useDesignModelGenerate.checked);
+  });
+  useDesignModelModify.addEventListener("change", () => {
+    setUseDesignModel(useDesignModelModify.checked);
+  });
   // setDebugOpenMode(localStorage.getItem("debugOpenMode"));
   // debugOpenMode.addEventListener("change", () => {
   //   setDebugOpenMode(debugOpenMode.value);

@@ -101,6 +101,11 @@ textarea {
   background: #fefcf8;
 }
 
+input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
 textarea {
   min-height: 150px;
   resize: vertical;
@@ -197,6 +202,88 @@ button:active {
 .history .role {
   font-weight: 600;
   margin-bottom: 4px;
+}
+
+.option-block {
+  border: 1px solid #e4d6c4;
+  background: #faf6ef;
+  padding: 10px 12px;
+  border-radius: 12px;
+  margin: 12px 0;
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.option-row label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.temp-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.temp-control input[type="range"] {
+  flex: 1;
+}
+
+.temp-label {
+  font-size: 12px;
+  color: #6a5f50;
+}
+
+.temp-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: #3b342a;
+  min-width: 36px;
+  text-align: right;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-start;
+  font-size: 13px;
+  color: #3b342a;
+}
+
+.temp-range {
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: #e6ddcf;
+  outline: none;
+}
+
+.temp-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #4c2e05;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.temp-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #4c2e05;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
 }
 
 .button-row {

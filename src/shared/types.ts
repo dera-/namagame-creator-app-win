@@ -21,6 +21,9 @@ export type GenerateMode = "create" | "modify";
 export interface GenerateRequest {
   prompt: string;
   mode: GenerateMode;
+  designTemperature?: number;
+  forbidGameJsonUpdate?: boolean;
+  useDesignModel?: boolean;
 }
 
 export interface GenerateResult {
@@ -28,6 +31,7 @@ export interface GenerateResult {
   game?: GameInfo;
   summary?: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
+  warningMessage?: string;
   errorMessage?: string;
   errorCode?: string;
 }
