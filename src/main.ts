@@ -1085,6 +1085,7 @@ ipcMain.handle(
       request.mode === "modify" && currentGame.projectDir
         ? await readGameJsonIfExists(currentGame.projectDir)
         : null;
+    const previousGame = currentGame;
 
 
     let projectDir = "";
@@ -1191,6 +1192,7 @@ ipcMain.handle(
       } catch (error) {
         lastError = error;
         if (error instanceof Error && error.name === "AbortError") {
+          currentGame = previousGame;
           return { ok: false, errorMessage: "キャンセルされました。", errorCode: "canceled" };
         }
         if (attempt < maxFixAttempts) {

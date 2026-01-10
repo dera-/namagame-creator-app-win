@@ -220,9 +220,21 @@ button:active {
   margin-bottom: 8px;
 }
 
+.option-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.option-group .option-row {
+  margin-bottom: 0;
+}
+
 .option-row label {
   margin: 0;
   white-space: nowrap;
+  font-size: 13px;
 }
 
 .temp-control {
@@ -264,6 +276,19 @@ button:active {
   border-radius: 999px;
   background: #e6ddcf;
   outline: none;
+}
+
+.temp-range:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.design-options.disabled .option-row,
+.design-options.disabled .temp-label,
+.design-options.disabled .temp-value,
+.design-options.disabled label[for="designTempGenerate"],
+.design-options.disabled label[for="designTempModify"] {
+  color: #a39888;
 }
 
 .temp-range::-webkit-slider-thumb {

@@ -56,30 +56,32 @@
           </p>
 
           <div class="option-block">
-            <div class="option-row">
-              <label for="designTempGenerate">ゲームデザイン温度</label>
-              <div class="temp-control">
-                <span class="temp-label">厳格</span>
-                <input
-                  id="designTempGenerate"
-                  type="range"
-                  class="temp-range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value="1"
-                />
-                <span class="temp-label">独創</span>
-                <span id="designTempGenerateValue" class="temp-value">0.30</span>
+            <div class="option-group design-options" id="designOptionsGenerate">
+              <label class="checkbox">
+                <input id="useDesignModelGenerate" type="checkbox" checked />
+                ゲーム設計モデルを利用
+              </label>
+                <div class="option-row">
+                  <label for="designTempGenerate">ゲームデザイン温度</label>
+                  <div class="temp-control">
+                  <span class="temp-label">厳格</span>
+                  <input
+                    id="designTempGenerate"
+                    type="range"
+                    class="temp-range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value="1"
+                  />
+                  <span class="temp-label">独創</span>
+                  <span id="designTempGenerateValue" class="temp-value">0.30</span>
+                </div>
               </div>
             </div>
             <label class="checkbox">
               <input id="forbidGameJsonGenerate" type="checkbox" />
               game.json の更新を禁止
-            </label>
-            <label class="checkbox">
-              <input id="useDesignModelGenerate" type="checkbox" checked />
-              ゲーム設計モデルを利用
             </label>
           </div>
 
@@ -102,7 +104,6 @@
 
           <div class="button-row">
             <button id="generateButton" class="primary">ゲーム生成</button>
-            <button id="retryGenerate" class="ghost hidden">再試行</button>
             <button id="goToConfigGenerate" class="ghost">API設定へ</button>
           </div>
           <div id="generateError" class="error"></div>
@@ -155,30 +156,32 @@
             <div class="side-panel">
               <div id="historyModify" class="history"></div>
               <div class="option-block">
-                <div class="option-row">
-                  <label for="designTempModify">ゲームデザイン温度</label>
-                  <div class="temp-control">
-                    <span class="temp-label">厳格</span>
-                    <input
-                      id="designTempModify"
-                      type="range"
-                      class="temp-range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value="1"
-                    />
-                    <span class="temp-label">独創</span>
-                    <span id="designTempModifyValue" class="temp-value">0.30</span>
+                <div class="option-group design-options" id="designOptionsModify">
+                  <label class="checkbox">
+                    <input id="useDesignModelModify" type="checkbox" checked />
+                    ゲーム設計モデルを利用
+                  </label>
+                  <div class="option-row">
+                    <label for="designTempModify">ゲームデザイン温度</label>
+                    <div class="temp-control">
+                      <span class="temp-label">厳格</span>
+                      <input
+                        id="designTempModify"
+                        type="range"
+                        class="temp-range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value="1"
+                      />
+                      <span class="temp-label">独創</span>
+                      <span id="designTempModifyValue" class="temp-value">0.30</span>
+                    </div>
                   </div>
                 </div>
                 <label class="checkbox">
                   <input id="forbidGameJsonModify" type="checkbox" />
                   game.json の更新を禁止
-                </label>
-                <label class="checkbox">
-                  <input id="useDesignModelModify" type="checkbox" checked />
-                  ゲーム設計モデルを利用
                 </label>
               </div>
               <label for="modifyPrompt">ゲーム修正テキスト</label>
@@ -188,7 +191,6 @@
               ></textarea>
               <div class="button-row">
                 <button id="modifyButton" class="primary">ゲーム修正</button>
-                <button id="retryModify" class="ghost hidden">再試行</button>
               </div>
               <button id="goToConfig" class="ghost hidden">API設定へ</button>
               <div id="modifyError" class="error"></div>

@@ -100,7 +100,6 @@ const configError = document.getElementById("configError") as HTMLDivElement;
 
 const generatePrompt = document.getElementById("generatePrompt") as HTMLTextAreaElement;
 const generateButton = document.getElementById("generateButton") as HTMLButtonElement;
-const retryGenerate = document.getElementById("retryGenerate") as HTMLButtonElement;
 const goToConfigGenerate = document.getElementById("goToConfigGenerate") as HTMLButtonElement;
 const generateError = document.getElementById("generateError") as HTMLDivElement;
 const historyGenerate = document.getElementById("historyGenerate") as HTMLDivElement;
@@ -116,7 +115,6 @@ const playgroundLink = document.getElementById("playgroundLink") as HTMLAnchorEl
 const debugOpenMode = document.getElementById("debugOpenMode") as HTMLSelectElement;
 const modifyPrompt = document.getElementById("modifyPrompt") as HTMLTextAreaElement;
 const modifyButton = document.getElementById("modifyButton") as HTMLButtonElement;
-const retryModify = document.getElementById("retryModify") as HTMLButtonElement;
 const modifyError = document.getElementById("modifyError") as HTMLDivElement;
 const goToConfig = document.getElementById("goToConfig") as HTMLButtonElement;
 const historyModify = document.getElementById("historyModify") as HTMLDivElement;
@@ -125,6 +123,8 @@ const designTempModifyValue = document.getElementById("designTempModifyValue") a
 const forbidGameJsonModify = document.getElementById("forbidGameJsonModify") as HTMLInputElement;
 const useDesignModelGenerate = document.getElementById("useDesignModelGenerate") as HTMLInputElement;
 const useDesignModelModify = document.getElementById("useDesignModelModify") as HTMLInputElement;
+const designOptionsGenerate = document.getElementById("designOptionsGenerate") as HTMLDivElement;
+const designOptionsModify = document.getElementById("designOptionsModify") as HTMLDivElement;
 
 const downloadMain = document.getElementById("downloadMain") as HTMLButtonElement;
 const downloadToggle = document.getElementById("downloadToggle") as HTMLButtonElement;
@@ -136,11 +136,10 @@ const loadingText = document.getElementById("loadingText") as HTMLDivElement;
 const cancelGeneration = document.getElementById("cancelGeneration") as HTMLButtonElement;
 const updateStatus = document.getElementById("updateStatus") as HTMLDivElement;
 
-let lastGeneratePrompt = "";
-let lastModifyPrompt = "";
 let generationInFlight = false;
 let historyEntries: Array<{ role: "user" | "assistant"; content: string }> = [];
 let debugOpenModeValue: "app" | "external" = "app";
+let returnScreenAfterConfig: "generate" | "play" = "generate";
 let designTemperature = 1;
 let forbidGameJsonUpdate = false;
 let useDesignModel = true;
@@ -211,6 +210,10 @@ function setUseDesignModel(checked: boolean): void {
   useDesignModel = checked;
   useDesignModelGenerate.checked = checked;
   useDesignModelModify.checked = checked;
+  designTempGenerate.disabled = !checked;
+  designTempModify.disabled = !checked;
+  designOptionsGenerate.classList.toggle("disabled", !checked);
+  designOptionsModify.classList.toggle("disabled", !checked);
   localStorage.setItem("useDesignModel", checked ? "1" : "0");
 }
 
@@ -337,7 +340,7 @@ async function handleConfigSubmit(): Promise<void> {
 
   historyEntries = [];
   renderHistory();
-  setScreen("generate");
+  setScreen(returnScreenAfterConfig);
 }
 
 async function runGeneration(mode: "create" | "modify"): Promise<void> {
@@ -346,17 +349,12 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
   const loadingMessage = mode === "create" ? "ゲーム生成中..." : "ゲーム修正中...";
 
   setError(targetError, "");
-  retryGenerate.classList.add("hidden");
-  retryModify.classList.add("hidden");
   if (!prompt.trim()) {
     setError(targetError, "テキストを入力してください。");
     return;
   }
 
   if (mode === "create") {
-    lastGeneratePrompt = prompt;
-  } else {
-    lastModifyPrompt = prompt;
   }
 
   generationInFlight = true;
@@ -382,11 +380,6 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
       } else {
         goToConfig.classList.remove("hidden");
       }
-    }
-    if (mode === "create") {
-      retryGenerate.classList.remove("hidden");
-    } else {
-      retryModify.classList.remove("hidden");
     }
     return;
   }
@@ -500,26 +493,14 @@ function bindEvents(): void {
   });
 
   goToConfigGenerate.addEventListener("click", () => {
+    returnScreenAfterConfig = "generate";
     setScreen("config");
   });
 
-  retryGenerate.addEventListener("click", () => {
-    if (lastGeneratePrompt) {
-      generatePrompt.value = lastGeneratePrompt;
-      runGeneration("create");
-    }
-  });
 
   modifyButton.addEventListener("click", () => {
     goToConfig.classList.add("hidden");
     runGeneration("modify");
-  });
-
-  retryModify.addEventListener("click", () => {
-    if (lastModifyPrompt) {
-      modifyPrompt.value = lastModifyPrompt;
-      runGeneration("modify");
-    }
   });
 
   cancelGeneration.addEventListener("click", async () => {
@@ -530,6 +511,7 @@ function bindEvents(): void {
   });
 
   goToConfig.addEventListener("click", () => {
+    returnScreenAfterConfig = "play";
     setScreen("config");
   });
 
