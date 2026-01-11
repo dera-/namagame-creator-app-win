@@ -362,7 +362,10 @@ TypeScriptテンプレートは禁止です。JavaScriptテンプレートのみ
 出力は必ず単一のJSONオブジェクトのみで返してください(説明文や余計な出力は禁止)。
 高速化のため、以下は必要な場合のみ実行してください。
 - format_with_eslint: 大きな変更がある場合のみ
-- akashic_scan_asset: 新規アセットの追加・変更・削除もしくはスクリプトファイルの追加・削除がある場合のみ
+- run_complete_audio: 音声ファイルの新規追加・変更時のみ。利用する場合は、以下に従うこと
+  - akashic_scan_asset 利用前に1度だけ利用すること
+  - directoryName にプロジェクトの audio ディレクトリ(無い場合は音声ファイルが格納されているディレクトリ)のパスを指定すること
+- akashic_scan_asset: アセット(画像・音声・スクリプト・テキスト)の新規追加・削除時のみ(画像や音声の場合は変更時も含む)
 - headless_akashic_test: 新規作成または大きな変更がある場合のみ
 
 implement_niconama_game を使って、ニコ生ゲームを実装してください。
@@ -420,7 +423,11 @@ function normalizeTemperature(value: unknown, fallback = 0.3): number {
   return Math.min(1, Math.max(0, value));
 }
 
-async function runDesign(prompt: string, temperature: number): Promise<string> {
+async function runDesign(
+  prompt: string,
+  temperature: number,
+  signal?: AbortSignal
+): Promise<string> {
   if (!aiClient || !aiConfig) {
     throw new Error("AI設定が未設定です。");
   }
@@ -443,7 +450,7 @@ async function runDesign(prompt: string, temperature: number): Promise<string> {
 ユーザー入力:
 ${prompt}`,
     temperature,
-  });
+  }, signal ? { signal } : undefined);
 
   return response.output_text?.trim() ?? "";
 }
@@ -470,24 +477,24 @@ async function runGeneration(
   const maxAttempts = 1;
   let lastError: unknown = null;
 
+  const controller = new AbortController();
+  currentGenerationController?.abort();
+  currentGenerationController = controller;
+  const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1200000); // ????????????????????????E ???E???????????E0???E
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   const shouldUseDesignModel =
     useDesignModel !== false && aiConfig.designModel && aiConfig.designModel !== aiConfig.model;
   const designStart = Date.now();
   const designTemp = normalizeTemperature(designTemperature, 0.3);
-  const designDoc = shouldUseDesignModel ? await runDesign(prompt, designTemp) : "";
+  const designDoc = shouldUseDesignModel ? await runDesign(prompt, designTemp, controller.signal) : "";
   if (shouldUseDesignModel) {
     console.log(`[timing] design: ${Date.now() - designStart}ms`);
     // console.log(designDoc);
   }
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const controller = new AbortController();
-    currentGenerationController?.abort();
-    currentGenerationController = controller;
-                const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1200000); // タイムアウト時間: デフォルト20分
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
+for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  try {
       if (conversation.length === 0) {
         const trimmedInstruction = developerInstruction.trim();
         if (trimmedInstruction) {
@@ -1176,6 +1183,7 @@ ipcMain.handle(
         }
         conversation.push({ role: "user", content: prompt });
         const assistantContent = payload.detail?.trim() || outputText;
+        console.log(assistantContent);
         if (payload.summary) {
           conversation.push({ role: "assistant", content: assistantContent, summary: payload.summary });
         } else {
