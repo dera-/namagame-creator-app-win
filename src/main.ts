@@ -23,6 +23,7 @@ import type {
   GameInfo,
   LoadProjectResult,
   UpdateStatus,
+  LlmRole,
 } from "./shared/types.js";
 
 const { autoUpdater } = pkg;
@@ -83,10 +84,11 @@ let localServer: LocalServer | null = null;
 let sandboxServer: SandboxServer | null = null;
 const projectRegistry = new Map<string, string>();
 let currentGame: GameInfo = { status: "idle" };
+let lastStableGame: GameInfo | null = null;
 let currentProjectOrigin: "none" | "generated" | "imported" = "none";
 let lastSuccessfulGame: GameInfo | null = null;
 type ConversationEntry = {
-  role: "user" | "assistant";
+  role: LlmRole;
   content: string;
   summary?: string;
   hidden?: boolean;
@@ -337,6 +339,7 @@ function buildDeveloperInstruction(
     mode === "modify"
       ? `
 【重要: 既存プロジェクトの修正】
+- read_project_files を使ってプロジェクト内容を確認する。
 - 既存ファイルを最大限維持し、変更が必要な部分だけを編集すること。
 - 変更対象ファイルを先に列挙し、そのファイルのみを編集すること。
 - 不要なファイルの削除・全面置換は行わないこと。
@@ -498,7 +501,7 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (conversation.length === 0) {
         const trimmedInstruction = developerInstruction.trim();
         if (trimmedInstruction) {
-          conversation.push({ role: "user", content: trimmedInstruction, hidden: true });
+          conversation.push({ role: "developer", content: trimmedInstruction, hidden: true });
         }
       }
       const inputMessages: OpenAI.Responses.ResponseInput = conversation.map((entry) => ({
@@ -567,7 +570,7 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   throw lastError ?? new Error("init_project");
 }
 
-function toUiHistory(entries: ConversationEntry[]): Array<{ role: "user" | "assistant"; content: string }> {
+function toUiHistory(entries: ConversationEntry[]): Array<{ role: LlmRole; content: string }> {
   return entries
     .filter((entry) => !entry.hidden)
     .map((entry) => ({
@@ -630,11 +633,15 @@ function validateGameJson(gameJson: GameJson): string[] {
   }
 
   if (gameJson.main) {
-    const mainKey = gameJson.main.replace(/^\.\//, "");
-    const mainAsset = gameJson.assets[mainKey];
-    if (!mainAsset) {
+    if (!(/^\.\/.+\.js$/).test(gameJson.main)) {
+      errors.push("mainの表記形式が誤っています。main: " + gameJson.main);
+    }
+    const mainScriptPath = gameJson.main.replace(/^\.\//, "");
+    const assets = (gameJson.assets as unknown) as {[key: string]: any};
+    const mainAssets = Object.keys(assets).filter(key => assets[key].path === mainScriptPath).map(key => assets[key]);
+    if (mainAssets.length === 0) {
       errors.push("mainに対応するassetsが見つかりません。");
-    } else if (mainAsset.type && mainAsset.type !== "script") {
+    } else if (mainAssets[0].type && mainAssets[0].type !== "script") {
       errors.push("mainに対応するassetsのtypeがscriptではありません。");
     }
   }
@@ -659,6 +666,8 @@ async function guardGameJsonAfterModify(
     return { restored: false, errors: ["missing"] };
   }
   const errors = validateGameJson(current);
+  console.log(errors);
+  console.log(await fs.readFile(path.join(projectDir, "game.json")).toString());
   if (errors.length === 0) return { restored: false, errors: [] };
 
   if (previous) {
@@ -1075,6 +1084,9 @@ ipcMain.handle("open-debug-external", async () => {
 ipcMain.handle("cancel-generation", () => {
   if (currentGenerationController) {
     currentGenerationController.abort();
+    if (currentGame.status === "generating" && lastStableGame) {
+      currentGame = lastStableGame;
+    }
     return { ok: true };
   }
   return { ok: false };
@@ -1097,10 +1109,11 @@ ipcMain.handle(
 
     let projectDir = "";
     if (request.mode === "modify") {
-      if (!currentGame.projectDir) {
+      const fallbackProjectDir = currentGame.projectDir ?? lastStableGame?.projectDir;
+      if (!fallbackProjectDir) {
         return { ok: false, errorMessage: "修正対象のゲームが見つかりません。" };
       }
-      projectDir = currentGame.projectDir;
+      projectDir = fallbackProjectDir;
     } else {
       const projectsDir = await ensureProjectsDir();
       const projectId = crypto.randomUUID();
@@ -1109,6 +1122,7 @@ ipcMain.handle(
       await fs.mkdir(projectDir, { recursive: true });
     }
 
+    lastStableGame = previousGame;
     currentGame = { status: "generating" };
 
     const maxFixAttempts = 1;
@@ -1170,6 +1184,7 @@ ipcMain.handle(
         }
         const prepareStart = Date.now();
         currentGame = await prepareGameFromProject(projectDir, projectName);
+        lastStableGame = currentGame;
         lastSuccessfulGame = currentGame;
         console.log(`[timing] prepareGame: ${Date.now() - prepareStart}ms`);
         currentProjectOrigin = "generated";
@@ -1184,6 +1199,8 @@ ipcMain.handle(
         conversation.push({ role: "user", content: prompt });
         const assistantContent = payload.detail?.trim() || outputText;
         console.log(assistantContent);
+        console.log("modify targetDir:", projectDir);
+        console.log("payload projectDir:", payload.projectDir);
         if (payload.summary) {
           conversation.push({ role: "assistant", content: assistantContent, summary: payload.summary });
         } else {
@@ -1209,14 +1226,22 @@ ipcMain.handle(
         }
         const errorCode = toErrorCode(error);
         const errorMessage = toErrorMessage(error);
-        currentGame = { status: "error", errorMessage, errorCode };
+        if (request.mode === "modify") {
+          currentGame = previousGame;
+        } else {
+          currentGame = { status: "error", errorMessage, errorCode };
+        }
         return { ok: false, errorMessage, errorCode };
       }
     }
 
     const errorCode = toErrorCode(lastError);
     const errorMessage = toErrorMessage(lastError);
-    currentGame = { status: "error", errorMessage, errorCode };
+    if (request.mode === "modify") {
+      currentGame = previousGame;
+    } else {
+      currentGame = { status: "error", errorMessage, errorCode };
+    }
     return { ok: false, errorMessage, errorCode };
   }
 );

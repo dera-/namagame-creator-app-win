@@ -1,4 +1,5 @@
 export type GameStatus = "idle" | "generating" | "success" | "error";
+export type LlmRole = "user" | "assistant" | "developer";
 
 export interface GameInfo {
   status: GameStatus;
@@ -30,7 +31,7 @@ export interface GenerateResult {
   ok: boolean;
   game?: GameInfo;
   summary?: string;
-  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  history?: Array<{ role: LlmRole; content: string }>;
   warningMessage?: string;
   errorMessage?: string;
   errorCode?: string;

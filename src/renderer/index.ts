@@ -338,8 +338,10 @@ async function handleConfigSubmit(): Promise<void> {
     return;
   }
 
-  historyEntries = [];
-  renderHistory();
+  if (returnScreenAfterConfig === "generate") {
+    historyEntries = [];
+    renderHistory();
+  }
   setScreen(returnScreenAfterConfig);
 }
 
@@ -471,6 +473,10 @@ function bindEvents(): void {
 
   projectDrop.addEventListener("dragover", (event) => {
     event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
     projectDrop.classList.add("dragover");
   });
 
@@ -478,8 +484,18 @@ function bindEvents(): void {
     projectDrop.classList.remove("dragover");
   });
 
+  projectDrop.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+    projectDrop.classList.add("dragover");
+  });
+
   projectDrop.addEventListener("drop", async (event) => {
     event.preventDefault();
+    event.stopPropagation();
     projectDrop.classList.remove("dragover");
     if (!window.namagame?.loadProjectDir) return;
     const files = Array.from(event.dataTransfer?.files ?? []);
@@ -490,6 +506,17 @@ function bindEvents(): void {
     const result = await window.namagame.loadProjectDir(sourceDir);
     setLoading(false, "", false);
     await handleProjectResult(result);
+  });
+
+  window.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "copy";
+    }
+  });
+
+  window.addEventListener("drop", (event) => {
+    event.preventDefault();
   });
 
   goToConfigGenerate.addEventListener("click", () => {
