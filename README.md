@@ -15,6 +15,9 @@
 - Node.js (LTS推奨)
 - pnpm (package.json の `packageManager` に準拠)
 - Git
+- ngrok
+- ffmpeg
+- @akashic/akashic-cli
 
 ### 初期セットアップ
 ```bash
@@ -31,10 +34,21 @@ npm run build
 cd ..
 ```
 
-### MCPサーバーURLの設定
-MCPサーバーのURLを環境変数で指定してください。
+### MCPサーバー起動
+1. akashic-mcp をローカルで起動
 ```bash
-export MCP_SERVER_URL="https://your-mcp-server.example.com"
+cd akashic-mcp
+node index
+```
+
+2. ローカルで起動後以下のコマンドを別プロセスで起動
+```bash
+ngrok http 8080
+```
+
+3. 2で表示されたURLを環境変数 MCP_SERVER_URL に以下のように代入
+```bash
+MCP_SERVER_URL=2で表示されたURL/mcp/sse
 ```
 
 ## 使い方
