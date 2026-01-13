@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createServer as createNetServer } from "node:net";
-import { spawn, type ChildProcess } from "node:child_process";
+import appLib from "@akashic/akashic-cli-sandbox/lib/app.js";
 import OpenAI from "openai";
 import AdmZip from "adm-zip";
 import { ConsoleLogger } from "@akashic/akashic-cli-commons";
@@ -64,7 +64,7 @@ type LocalServer = {
 
 type SandboxServer = {
   port: number;
-  process: ChildProcess;
+  server: ReturnType<typeof createServer>;
   projectDir: string;
 };
 
@@ -139,17 +139,6 @@ function resolvePlaygroundDir(): string {
   throw new Error("playgroundのビルド成果物が見つかりません。");
 }
 
-function resolveSandboxBin(): string {
-  const binName = process.platform === "win32"
-    ? "akashic-cli-sandbox.cmd"
-    : "akashic-cli-sandbox";
-  const binPath = path.join(app.getAppPath(), "node_modules", ".bin", binName);
-  if (fsSync.existsSync(binPath)) {
-    return binPath;
-  }
-  throw new Error("akashic-sandboxが見つかりません。");
-}
-
 function getAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createNetServer();
@@ -166,22 +155,21 @@ async function startSandboxServer(projectDir: string): Promise<SandboxServer> {
     return sandboxServer;
   }
   if (sandboxServer) {
-    sandboxServer.process.kill();
+    await new Promise<void>((resolve) => sandboxServer?.server.close(() => resolve()));
     sandboxServer = null;
   }
 
   const port = await getAvailablePort();
-  const binPath = resolveSandboxBin();
-  const child = spawn(binPath, ["-p", String(port), projectDir], {
-    stdio: "ignore",
-    shell: process.platform === "win32",
-  });
-  sandboxServer = { port, process: child, projectDir };
-  child.on("exit", () => {
-    if (sandboxServer?.process === child) {
+  const appInstance = appLib({ gameBase: projectDir });
+  appInstance.set("port", port);
+  const server = createServer(appInstance);
+  server.listen(port);
+  server.on("close", () => {
+    if (sandboxServer?.server === server) {
       sandboxServer = null;
     }
   });
+  sandboxServer = { port, server, projectDir };
   return sandboxServer;
 }
 
@@ -965,7 +953,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   if (sandboxServer) {
-    sandboxServer.process.kill();
+    sandboxServer.server.close();
     sandboxServer = null;
   }
   if (debugWindow) {
