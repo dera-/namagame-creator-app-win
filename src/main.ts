@@ -876,16 +876,50 @@ function toErrorCode(error: unknown): string | undefined {
   return undefined;
 }
 
-async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
-  const stats = await fs.stat(sourceDir).catch(() => null);
-  if (!stats?.isDirectory()) {
-    throw new Error("指定されたパスはディレクトリではありません。");
+function normalizeDroppedPath(input: string): string {
+  let value = input.trim();
+  if (!value) return value;
+  if (value.startsWith("file://")) {
+    try {
+      const url = new URL(value);
+      value = decodeURIComponent(url.pathname);
+    } catch {
+      return input;
+    }
   }
-  const sourceGameJson = path.join(sourceDir, "game.json");
+  const wslMatch = value.match(/^\\\\(wsl\\.localhost|wsl\\$)\\([^\\]+)\\(.*)$/i);
+  if (wslMatch) {
+    const rest = wslMatch[3].replace(/\\/g, "/");
+    return `/${rest}`.replace(/\/+/g, "/");
+  }
+  const driveMatch = value.match(/^([a-zA-Z]):[\\/](.*)$/);
+  if (driveMatch) {
+    const drive = driveMatch[1].toLowerCase();
+    const rest = driveMatch[2].replace(/\\/g, "/");
+    return `/mnt/${drive}/${rest}`;
+  }
+  return value;
+}
+
+async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
+  const normalizedSourceDir = normalizeDroppedPath(sourceDir);
+  const candidates = Array.from(new Set([normalizedSourceDir, sourceDir]));
+  let resolvedSourceDir: string | null = null;
+  for (const candidate of candidates) {
+    const stats = await fs.stat(candidate).catch(() => null);
+    if (stats?.isDirectory()) {
+      resolvedSourceDir = candidate;
+      break;
+    }
+  }
+  if (!resolvedSourceDir) {
+    throw new Error("The specified path is not a directory.");
+  }
+  const sourceGameJson = path.join(resolvedSourceDir, "game.json");
   try {
     await fs.access(sourceGameJson);
   } catch {
-    throw new Error("game.jsonが見つかりません。");
+    throw new Error("game.json was not found.");
   }
 
   const projectsDir = await ensureProjectsDir();
@@ -893,9 +927,9 @@ async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
   const targetDir = path.join(projectsDir, projectId);
   await fs.rm(targetDir, { recursive: true, force: true });
   await fs.mkdir(targetDir, { recursive: true });
-  await fs.cp(sourceDir, targetDir, { recursive: true });
+  await fs.cp(resolvedSourceDir, targetDir, { recursive: true });
 
-  const projectName = path.basename(sourceDir);
+  const projectName = path.basename(resolvedSourceDir);
   return prepareGameFromProject(targetDir, projectName);
 }
 
