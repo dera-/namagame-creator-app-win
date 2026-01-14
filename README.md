@@ -38,7 +38,8 @@ cd ..
 1. akashic-mcp をローカルで起動
 ```bash
 cd akashic-mcp
-node index
+npm install
+node index.js
 ```
 
 2. ローカルで起動後以下のコマンドを別プロセスで起動

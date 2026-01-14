@@ -104,7 +104,6 @@ const goToConfigGenerate = document.getElementById("goToConfigGenerate") as HTML
 const generateError = document.getElementById("generateError") as HTMLDivElement;
 const historyGenerate = document.getElementById("historyGenerate") as HTMLDivElement;
 const openProjectButton = document.getElementById("openProjectButton") as HTMLButtonElement;
-const projectDrop = document.getElementById("projectDrop") as HTMLDivElement;
 const designTempGenerate = document.getElementById("designTempGenerate") as HTMLInputElement;
 const designTempGenerateValue = document.getElementById("designTempGenerateValue") as HTMLSpanElement;
 const forbidGameJsonGenerate = document.getElementById("forbidGameJsonGenerate") as HTMLInputElement;
@@ -469,54 +468,6 @@ function bindEvents(): void {
     const result = await window.namagame.openProjectDir();
     setLoading(false, "", false);
     await handleProjectResult(result);
-  });
-
-  projectDrop.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "copy";
-    }
-    projectDrop.classList.add("dragover");
-  });
-
-  projectDrop.addEventListener("dragleave", () => {
-    projectDrop.classList.remove("dragover");
-  });
-
-  projectDrop.addEventListener("dragenter", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "copy";
-    }
-    projectDrop.classList.add("dragover");
-  });
-
-  projectDrop.addEventListener("drop", async (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    projectDrop.classList.remove("dragover");
-    if (!window.namagame?.loadProjectDir) return;
-    const files = Array.from(event.dataTransfer?.files ?? []);
-    if (files.length === 0) return;
-    const sourceDir = files[0].path;
-    setError(generateError, "");
-    setLoading(true, "プロジェクトを読み込み中...", false);
-    const result = await window.namagame.loadProjectDir(sourceDir);
-    setLoading(false, "", false);
-    await handleProjectResult(result);
-  });
-
-  window.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = "copy";
-    }
-  });
-
-  window.addEventListener("drop", (event) => {
-    event.preventDefault();
   });
 
   goToConfigGenerate.addEventListener("click", () => {

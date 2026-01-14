@@ -471,7 +471,7 @@ async function runGeneration(
   const controller = new AbortController();
   currentGenerationController?.abort();
   currentGenerationController = controller;
-  const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1200000); // ????????????????????????E ???E???????????E0???E
+  const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1200000); // 20分でタイムアウトとする
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   const shouldUseDesignModel =
