@@ -61,6 +61,7 @@ declare global {
       openDebugWindow: () => Promise<{ ok: boolean; errorMessage?: string }>;
       openDebugExternal: () => Promise<{ ok: boolean; errorMessage?: string }>;
       getHistory: () => Promise<{ history: Array<{ role: "user" | "assistant"; content: string }> }>;
+      resetSession: () => Promise<{ ok: boolean; errorMessage?: string }>;
       downloadProjectZip: () => Promise<DownloadResult>;
       downloadNicoliveZip: () => Promise<DownloadResult>;
       openProjectDir: () => Promise<LoadProjectResult>;
@@ -116,6 +117,7 @@ const modifyPrompt = document.getElementById("modifyPrompt") as HTMLTextAreaElem
 const modifyButton = document.getElementById("modifyButton") as HTMLButtonElement;
 const modifyError = document.getElementById("modifyError") as HTMLDivElement;
 const goToConfig = document.getElementById("goToConfig") as HTMLButtonElement;
+const returnToGenerate = document.getElementById("returnToGenerate") as HTMLButtonElement;
 const historyModify = document.getElementById("historyModify") as HTMLDivElement;
 const designTempModify = document.getElementById("designTempModify") as HTMLInputElement;
 const designTempModifyValue = document.getElementById("designTempModifyValue") as HTMLSpanElement;
@@ -491,6 +493,27 @@ function bindEvents(): void {
   goToConfig.addEventListener("click", () => {
     returnScreenAfterConfig = "play";
     setScreen("config");
+  });
+
+  returnToGenerate.addEventListener("click", async () => {
+    const confirmed = window.confirm(
+      "生成画面に戻ると現在のゲーム内容がリセットされます。よろしいですか？"
+    );
+    if (!confirmed) return;
+    if (!window.namagame?.resetSession) return;
+    const result = await window.namagame.resetSession();
+    if (!result.ok) {
+      setError(modifyError, result.errorMessage || "セッションのリセットに失敗しました。");
+      return;
+    }
+    historyEntries = [];
+    renderHistory();
+    setError(modifyError, "");
+    setError(generateError, "");
+    modifyPrompt.value = "";
+    generatePrompt.value = "";
+    showPlayground();
+    setScreen("generate");
   });
 
   downloadMain.addEventListener("click", () => handleDownload("nicolive"));

@@ -11,6 +11,7 @@ const api = {
   openDebugWindow: () => ipcRenderer.invoke("open-debug-window"),
   openDebugExternal: () => ipcRenderer.invoke("open-debug-external"),
   getHistory: () => ipcRenderer.invoke("get-history"),
+  resetSession: () => ipcRenderer.invoke("reset-session"),
   downloadProjectZip: () => ipcRenderer.invoke("download-project-zip"),
   downloadNicoliveZip: () => ipcRenderer.invoke("download-nicolive-zip"),
   openProjectDir: () => ipcRenderer.invoke("open-project-dir"),

@@ -15,7 +15,6 @@
 - Node.js (LTS推奨)
 - pnpm (package.json の `packageManager` に準拠)
 - Git
-- ngrok
 - ffmpeg
 - @akashic/akashic-cli
 
@@ -35,22 +34,8 @@ cd ..
 ```
 
 ### MCPサーバー起動
-1. akashic-mcp をローカルで起動
-```bash
-cd akashic-mcp
-npm install
-node index.js
-```
-
-2. ローカルで起動後以下のコマンドを別プロセスで起動
-```bash
-ngrok http 8080
-```
-
-3. 2で表示されたURLを環境変数 MCP_SERVER_URL に以下のように代入
-```bash
-MCP_SERVER_URL=2で表示されたURL/mcp/sse
-```
+アプリ起動時にMCPサーバーをローカルで自動起動します。
+初回のみ `akashic-mcp/` の依存関係が未インストールの場合は自動で `npm install` を実行します。
 
 ## 使い方
 1. アプリ起動後、モデルとAPIキーを入力して「決定」

@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import crypto from "node:crypto";
 import { createServer } from "node:http";
+import { spawn } from "node:child_process";
 import type { ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createServer as createNetServer } from "node:net";
@@ -29,7 +30,7 @@ import type {
 const { autoUpdater } = pkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL;
+const EXTERNAL_MCP_SERVER_URL = process.env.MCP_SERVER_URL;
 const PROJECTS_DIR_NAME = "projects";
 const PLAYGROUND_PATH = "/playground";
 const GAME_PATH = "/game";
@@ -76,12 +77,40 @@ type GenerationPayload = {
   detail?: string;
 };
 
+type McpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+};
+
+type FunctionToolDef = {
+  type: "function";
+  name: string;
+  description?: string;
+  parameters: Record<string, unknown>;
+};
+
+type ResponseFunctionToolCall = {
+  type: "function_call";
+  name: string;
+  arguments: string;
+  call_id: string;
+};
+
+type McpServerInfo = {
+  baseUrl: string;
+  port?: number;
+  process?: ReturnType<typeof spawn>;
+  tools: FunctionToolDef[];
+};
+
 let mainWindow: BrowserWindow | null = null;
 let debugWindow: BrowserWindow | null = null;
 let aiConfig: AiConfig | null = null;
 let aiClient: OpenAI | null = null;
 let localServer: LocalServer | null = null;
 let sandboxServer: SandboxServer | null = null;
+let mcpServer: McpServerInfo | null = null;
 const projectRegistry = new Map<string, string>();
 let currentGame: GameInfo = { status: "idle" };
 let lastStableGame: GameInfo | null = null;
@@ -148,6 +177,254 @@ function getAvailablePort(): Promise<number> {
     });
     server.on("error", reject);
   });
+}
+
+function resolveMcpServerEntry(): { entryPath: string; serverDir: string } {
+  const appPath = app.getAppPath();
+  const unpackedBase = appPath.endsWith(".asar")
+    ? path.join(path.dirname(appPath), "app.asar.unpacked")
+    : null;
+  const candidates = [
+    path.join(appPath, "akashic-mcp", "index.js"),
+    ...(unpackedBase ? [path.join(unpackedBase, "akashic-mcp", "index.js")] : []),
+    path.join(process.cwd(), "akashic-mcp", "index.js"),
+    path.join(__dirname, "..", "akashic-mcp", "index.js"),
+  ];
+  const entryPath = candidates.find((candidate) => fsSync.existsSync(candidate));
+  if (!entryPath) {
+    throw new Error("akashic-mcpのサーバーが見つかりません。");
+  }
+  return { entryPath, serverDir: path.dirname(entryPath) };
+}
+
+function getNodeBinary(): string {
+  return process.env.NODE_BINARY ?? "node";
+}
+
+function getNpmBinary(): string {
+  return process.env.NPM_BINARY ?? "npm";
+}
+
+function runCommand(
+  command: string,
+  args: string[],
+  options: { cwd: string; env?: NodeJS.ProcessEnv }
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout?.on("data", (chunk) => console.log(String(chunk)));
+    child.stderr?.on("data", (chunk) => console.error(String(chunk)));
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} failed with code ${code ?? "unknown"}`));
+    });
+  });
+}
+
+async function ensureMcpDependencies(serverDir: string): Promise<void> {
+  const nodeModulesDir = path.join(serverDir, "node_modules");
+  if (fsSync.existsSync(nodeModulesDir)) {
+    return;
+  }
+  try {
+    await runCommand(getNpmBinary(), ["install"], { cwd: serverDir, env: process.env });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown";
+    throw new Error(`akashic-mcpの依存インストールに失敗しました: ${message}`);
+  }
+}
+
+async function fetchMcpTools(baseUrl: string, signal?: AbortSignal): Promise<FunctionToolDef[]> {
+  const response = await fetch(`${baseUrl}/proxy/tools`, { signal });
+  if (!response.ok) {
+    throw new Error(`MCPツール一覧の取得に失敗しました: ${response.status}`);
+  }
+  const data = (await response.json().catch(() => null)) as
+    | { tools?: McpTool[] }
+    | McpTool[]
+    | null;
+  const tools = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.tools)
+      ? data?.tools
+      : [];
+
+  if (!Array.isArray(tools) || tools.length === 0) {
+    throw new Error("MCPツール一覧が空です。");
+  }
+
+  return tools.map((tool) => {
+    const parameters =
+      tool.inputSchema && typeof tool.inputSchema === "object"
+        ? { type: "object", ...tool.inputSchema }
+        : { type: "object", properties: {}, additionalProperties: true };
+    return {
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters,
+    };
+  });
+}
+
+async function startLocalMcpServer(signal?: AbortSignal): Promise<McpServerInfo> {
+  if (EXTERNAL_MCP_SERVER_URL) {
+    const tools = await fetchMcpTools(EXTERNAL_MCP_SERVER_URL, signal);
+    return { baseUrl: EXTERNAL_MCP_SERVER_URL, tools };
+  }
+
+  if (mcpServer?.process && mcpServer.process.exitCode == null) {
+    return mcpServer;
+  }
+
+  const { entryPath, serverDir } = resolveMcpServerEntry();
+  await ensureMcpDependencies(serverDir);
+  const port = process.env.MCP_SERVER_PORT
+    ? Number(process.env.MCP_SERVER_PORT)
+    : await getAvailablePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const child = spawn(getNodeBinary(), [entryPath], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: true,
+  });
+  child.stdout?.on("data", (chunk) => console.log(String(chunk)));
+  child.stderr?.on("data", (chunk) => console.error(String(chunk)));
+  child.on("exit", () => {
+    if (mcpServer?.process === child) {
+      mcpServer = null;
+    }
+  });
+
+  const deadline = Date.now() + 15000;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      throw new Error("MCPサーバー起動がキャンセルされました。");
+    }
+    try {
+      const tools = await fetchMcpTools(baseUrl, signal);
+      return { baseUrl, port, process: child, tools };
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("MCPサーバーの起動に失敗しました。");
+}
+
+async function ensureMcpServer(signal?: AbortSignal): Promise<McpServerInfo> {
+  if (mcpServer?.tools && (!mcpServer.process || mcpServer.process.exitCode == null)) {
+    return mcpServer;
+  }
+  mcpServer = await startLocalMcpServer(signal);
+  return mcpServer;
+}
+
+function toToolOutputString(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  if (!payload || typeof payload !== "object") return String(payload ?? "");
+  const anyPayload = payload as { content?: Array<{ type?: string; text?: string }>; isError?: boolean };
+  if (Array.isArray(anyPayload.content)) {
+    const text = anyPayload.content
+      .map((item) => (typeof item?.text === "string" ? item.text : JSON.stringify(item)))
+      .filter(Boolean)
+      .join("\n");
+    if (text) return text;
+  }
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+async function callMcpTool(
+  baseUrl: string,
+  name: string,
+  argsJson: string,
+  signal?: AbortSignal
+): Promise<string> {
+  let args: Record<string, unknown> = {};
+  if (argsJson) {
+    try {
+      args = JSON.parse(argsJson) as Record<string, unknown>;
+    } catch {
+      return JSON.stringify({ error: "ツール引数のJSON解析に失敗しました。", raw: argsJson });
+    }
+  }
+
+  const response = await fetch(`${baseUrl}/proxy/call`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, arguments: args }),
+    signal,
+  });
+
+  if (!response.ok) {
+    return JSON.stringify({ error: `ツール呼び出しに失敗しました: ${response.status}` });
+  }
+
+  const data = await response.json().catch(() => null);
+  return toToolOutputString(data);
+}
+
+async function createResponseWithMcpTools(
+  body: Record<string, unknown>,
+  options?: { signal?: AbortSignal }
+): Promise<OpenAI.Responses.Response> {
+  const mcpInfo = await ensureMcpServer(options?.signal);
+  const baseBody = {
+    ...body,
+    tools: mcpInfo.tools,
+    parallel_tool_calls: true,
+  };
+
+  let response = await createResponseWithTemperature(baseBody, options);
+  let iterations = 0;
+
+  while (true) {
+    const toolCalls = (response.output ?? []).filter(
+      (item) => item.type === "function_call"
+    ) as ResponseFunctionToolCall[];
+    if (!toolCalls || toolCalls.length === 0) {
+      return response;
+    }
+    iterations += 1;
+    if (iterations > 12) {
+      throw new Error("ツール呼び出しが多すぎるため中断しました。");
+    }
+
+    const outputs = await Promise.all(
+      toolCalls.map((call) => callMcpTool(mcpInfo.baseUrl, call.name, call.arguments, options?.signal))
+    );
+    const toolOutputItems = toolCalls.map((call, index) => ({
+      type: "function_call_output",
+      call_id: call.call_id,
+      output: outputs[index],
+    }));
+
+    response = await createResponseWithTemperature(
+      {
+        ...baseBody,
+        input: toolOutputItems,
+        previous_response_id: response.id,
+      },
+      options
+    );
+  }
 }
 
 async function startSandboxServer(projectDir: string): Promise<SandboxServer> {
@@ -422,21 +699,9 @@ async function runDesign(
   if (!aiClient || !aiConfig) {
     throw new Error("AI設定が未設定です。");
   }
-  if (!MCP_SERVER_URL) {
-    throw new Error("MCPサーバーURLが未設定です。");
-  }
 
-  const response = await createResponseWithTemperature({
+  const response = await createResponseWithMcpTools({
     model: aiConfig.designModel ?? aiConfig.model,
-    tools: [
-      {
-        type: "mcp",
-        server_label: "namagame_generator",
-        server_description: "Nicolive game generator MCP server",
-        server_url: MCP_SERVER_URL,
-        require_approval: "never",
-      },
-    ],
     input: `design_niconama_game を使って、ゲーム設計文のみを出力してください。
 ユーザー入力:
 ${prompt}`,
@@ -456,9 +721,6 @@ async function runGeneration(
 ): Promise<{ payload: GenerationPayload; outputText: string; designDoc: string }> {
   if (!aiClient || !aiConfig) {
     throw new Error("AI設定が未設定です。");
-  }
-  if (!MCP_SERVER_URL) {
-    throw new Error("MCPサーバーURLが未設定です。");
   }
 
   console.log("targetDir", targetDir);
@@ -511,17 +773,8 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (selectedModel !== aiConfig.model) {
         console.log(`[model] override create-mode model: ${aiConfig.model} -> ${selectedModel}`);
       }
-      const response = await createResponseWithTemperature({
+      const response = await createResponseWithMcpTools({
         model: selectedModel,
-        tools: [
-          {
-            type: "mcp",
-            server_label: "namagame_generator",
-            server_description: "Nicolive game generator MCP server",
-            server_url: MCP_SERVER_URL,
-            require_approval: "never",
-          },
-        ],
         input: inputMessages,
         temperature: 0,
       }, { signal: controller.signal });
@@ -960,6 +1213,10 @@ app.on("before-quit", () => {
     debugWindow.close();
     debugWindow = null;
   }
+  if (mcpServer?.process && mcpServer.process.exitCode == null) {
+    mcpServer.process.kill();
+  }
+  mcpServer = null;
 });
 
 app.on("activate", () => {
@@ -1015,6 +1272,23 @@ ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
 
 ipcMain.handle("get-history", () => {
   return { history: toUiHistory(conversation) };
+});
+
+ipcMain.handle("reset-session", () => {
+  conversation = [];
+  currentGame = { status: "idle" };
+  lastStableGame = null;
+  lastSuccessfulGame = null;
+  currentProjectOrigin = "none";
+  if (currentGenerationController) {
+    currentGenerationController.abort();
+    currentGenerationController = null;
+  }
+  if (sandboxServer) {
+    sandboxServer.server.close();
+    sandboxServer = null;
+  }
+  return { ok: true };
 });
 
 ipcMain.handle("open-project-dir", async (): Promise<LoadProjectResult> => {

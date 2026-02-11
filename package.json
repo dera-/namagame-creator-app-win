@@ -46,10 +46,14 @@
     },
     "files": [
       "script/**",
+      "akashic-mcp/**",
       "package.json",
       "node_modules/**"
     ],
     "asar": true,
+    "asarUnpack": [
+      "akashic-mcp/**"
+    ],
     "publish": [
       {
         "provider": "github",
