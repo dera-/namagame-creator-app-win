@@ -97,6 +97,15 @@ type ResponseFunctionToolCall = {
   call_id: string;
 };
 
+type McpPromptMessage = {
+  role?: string;
+  content?: unknown;
+};
+
+type McpPromptResponse = {
+  messages?: McpPromptMessage[];
+};
+
 type McpServerInfo = {
   baseUrl: string;
   port?: number;
@@ -125,6 +134,7 @@ type ConversationEntry = {
 
 let conversation: Array<ConversationEntry> = [];
 let currentGenerationController: AbortController | null = null;
+let cachedImplementPrompt: Array<{ role: LlmRole; content: string }> | null = null;
 
 function getRendererHtmlPath(): string {
   const appPath = app.getAppPath();
@@ -271,6 +281,69 @@ async function fetchMcpTools(baseUrl: string, signal?: AbortSignal): Promise<Fun
       parameters,
     };
   });
+}
+
+async function fetchMcpPrompt(
+  baseUrl: string,
+  name: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<McpPromptMessage[]> {
+  const response = await fetch(`${baseUrl}/proxy/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, arguments: args }),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`MCPプロンプトの取得に失敗しました: ${response.status}`);
+  }
+  const data = (await response.json().catch(() => null)) as McpPromptResponse | null;
+  if (!data?.messages || !Array.isArray(data.messages)) {
+    throw new Error("MCPプロンプトの形式が不正です。");
+  }
+  return data.messages;
+}
+
+function normalizePromptContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content && typeof content === "object") {
+    const anyContent = content as { type?: string; text?: string };
+    if (typeof anyContent.text === "string") return anyContent.text;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => normalizePromptContent(item))
+      .filter(Boolean)
+      .join("\n");
+  }
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content ?? "");
+  }
+}
+
+function toInputMessagesFromPrompt(messages: McpPromptMessage[]): Array<{ role: LlmRole; content: string }> {
+  return messages
+    .map((message) => {
+      const role: LlmRole =
+        message.role === "assistant" || message.role === "developer" ? message.role : "user";
+      const content = normalizePromptContent(message.content);
+      return { role, content };
+    })
+    .filter((entry) => entry.content.trim().length > 0);
+}
+
+function toDeveloperMessagesFromPrompt(
+  messages: McpPromptMessage[]
+): Array<{ role: LlmRole; content: string }> {
+  return messages
+    .map((message) => {
+      const content = normalizePromptContent(message.content);
+      return { role: "developer" as LlmRole, content };
+    })
+    .filter((entry) => entry.content.trim().length > 0);
 }
 
 async function startLocalMcpServer(signal?: AbortSignal): Promise<McpServerInfo> {
@@ -527,12 +600,21 @@ function startLocalServer(playgroundDir: string): Promise<LocalServer> {
       }
 
       if (requestPath.startsWith(`${SANDBOX_PATH}`)) {
-        if (!sandboxServer) {
+        const parts = requestPath.split("/").filter(Boolean);
+        const projectId = parts[1];
+        if (!projectId) {
           res.writeHead(404);
           res.end("Not Found");
           return;
         }
-        const redirectTarget = `http://127.0.0.1:${sandboxServer.port}/game/`;
+        const projectDir = projectRegistry.get(projectId);
+        if (!projectDir) {
+          res.writeHead(404);
+          res.end("Not Found");
+          return;
+        }
+        const activeSandbox = await startSandboxServer(projectDir);
+        const redirectTarget = `http://127.0.0.1:${activeSandbox.port}/game/`;
         res.writeHead(302, { Location: redirectTarget });
         res.end();
         return;
@@ -700,11 +782,21 @@ async function runDesign(
     throw new Error("AI設定が未設定です。");
   }
 
+  const mcpInfo = await ensureMcpServer(signal);
+  let promptMessages: Array<{ role: LlmRole; content: string }> = [];
+  try {
+    const rawMessages = await fetchMcpPrompt(mcpInfo.baseUrl, "design_niconama_game", {}, signal);
+    promptMessages = toInputMessagesFromPrompt(rawMessages);
+  } catch (error) {
+    console.warn("MCP設計プロンプトの取得に失敗しました。", error);
+  }
+
   const response = await createResponseWithMcpTools({
     model: aiConfig.designModel ?? aiConfig.model,
-    input: `design_niconama_game を使って、ゲーム設計文のみを出力してください。
-ユーザー入力:
-${prompt}`,
+    input: [
+      ...promptMessages,
+      { role: "user", content: `ゲーム設計文のみを出力してください。\nユーザー入力:\n${prompt}` },
+    ],
     temperature,
   }, signal ? { signal } : undefined);
 
@@ -749,6 +841,24 @@ async function runGeneration(
 for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   try {
       if (conversation.length === 0) {
+        if (!cachedImplementPrompt) {
+          try {
+            const rawMessages = await fetchMcpPrompt(
+              (await ensureMcpServer(controller.signal)).baseUrl,
+              "implement_niconama_game",
+              { targetDir },
+              controller.signal
+            );
+            cachedImplementPrompt = toDeveloperMessagesFromPrompt(rawMessages);
+          } catch (error) {
+            console.warn("MCP実装プロンプトの取得に失敗しました。", error);
+          }
+        }
+        if (cachedImplementPrompt && cachedImplementPrompt.length > 0) {
+          cachedImplementPrompt.forEach((entry) =>
+            conversation.push({ role: entry.role, content: entry.content, hidden: true })
+          );
+        }
         const trimmedInstruction = developerInstruction.trim();
         if (trimmedInstruction) {
           conversation.push({ role: "developer", content: trimmedInstruction, hidden: true });
@@ -1037,7 +1147,7 @@ async function prepareGameFromProject(projectDir: string, projectName: string): 
 
   const gameJsonUrl = `http://127.0.0.1:${serverInfo.port}${GAME_PATH}/${projectId}/game.json`;
   const playgroundUrl = buildPlaygroundUrl(serverInfo.port, gameJsonUrl, projectName);
-  const debugUrl = `http://127.0.0.1:${serverInfo.port}${SANDBOX_PATH}/`;
+  const debugUrl = `http://127.0.0.1:${serverInfo.port}${SANDBOX_PATH}/${projectId}/`;
 
   return {
     status: "success",
@@ -1236,6 +1346,7 @@ ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
   aiConfig = config;
   aiClient = new OpenAI({ apiKey: config.apiKey });
   conversation = [];
+  cachedImplementPrompt = null;
 
   if (process.env.SKIP_API_KEY_CHECK === "1") {
     return { ok: true };
@@ -1280,6 +1391,7 @@ ipcMain.handle("reset-session", () => {
   lastStableGame = null;
   lastSuccessfulGame = null;
   currentProjectOrigin = "none";
+  cachedImplementPrompt = null;
   if (currentGenerationController) {
     currentGenerationController.abort();
     currentGenerationController = null;
