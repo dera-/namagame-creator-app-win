@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc -p ./ && node tools/copy-assets.js",
     "start": "npm run build && electron .",
-    "pack": "npm run build && electron-builder",
+    "prepare:mcp": "node tools/prepare-embedded-mcp.js",
+    "pack": "npm run prepare:mcp && npm run build && electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -53,6 +54,15 @@
     "asar": true,
     "asarUnpack": [
       "akashic-mcp/**"
+    ],
+    "extraResources": [
+      {
+        "from": "akashic-mcp",
+        "to": "akashic-mcp",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "publish": [
       {

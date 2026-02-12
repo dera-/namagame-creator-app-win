@@ -13,16 +13,13 @@ function parseArgs() {
 
 async function main() {
   const apiKey = process.env.OPENAI_API_KEY;
-  const mcpServerUrl = process.env.MCP_SERVER_URL;
+  const mcpServerUrl = "http://127.0.0.1:8080/mcp/sse";
   const targetDir = process.env.MCP_TARGET_DIR
     ? path.resolve(process.env.MCP_TARGET_DIR)
     : path.resolve(process.cwd(), "mcp-output");
 
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is required.");
-  }
-  if (!mcpServerUrl) {
-    throw new Error("MCP_SERVER_URL is required.");
   }
 
   await fs.mkdir(targetDir, { recursive: true });

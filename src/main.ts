@@ -30,7 +30,6 @@ import type {
 const { autoUpdater } = pkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const EXTERNAL_MCP_SERVER_URL = process.env.MCP_SERVER_URL;
 const PROJECTS_DIR_NAME = "projects";
 const PLAYGROUND_PATH = "/playground";
 const GAME_PATH = "/game";
@@ -191,10 +190,15 @@ function getAvailablePort(): Promise<number> {
 
 function resolveMcpServerEntry(): { entryPath: string; serverDir: string } {
   const appPath = app.getAppPath();
+  const resourcesPath =
+    app.isPackaged && process.resourcesPath
+      ? path.join(process.resourcesPath, "akashic-mcp", "index.js")
+      : null;
   const unpackedBase = appPath.endsWith(".asar")
     ? path.join(path.dirname(appPath), "app.asar.unpacked")
     : null;
   const candidates = [
+    ...(resourcesPath ? [resourcesPath] : []),
     path.join(appPath, "akashic-mcp", "index.js"),
     ...(unpackedBase ? [path.join(unpackedBase, "akashic-mcp", "index.js")] : []),
     path.join(process.cwd(), "akashic-mcp", "index.js"),
@@ -347,20 +351,13 @@ function toDeveloperMessagesFromPrompt(
 }
 
 async function startLocalMcpServer(signal?: AbortSignal): Promise<McpServerInfo> {
-  if (EXTERNAL_MCP_SERVER_URL) {
-    const tools = await fetchMcpTools(EXTERNAL_MCP_SERVER_URL, signal);
-    return { baseUrl: EXTERNAL_MCP_SERVER_URL, tools };
-  }
-
   if (mcpServer?.process && mcpServer.process.exitCode == null) {
     return mcpServer;
   }
 
   const { entryPath, serverDir } = resolveMcpServerEntry();
   await ensureMcpDependencies(serverDir);
-  const port = process.env.MCP_SERVER_PORT
-    ? Number(process.env.MCP_SERVER_PORT)
-    : await getAvailablePort();
+  const port = await getAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
 
   const child = spawn(getNodeBinary(), [entryPath], {
