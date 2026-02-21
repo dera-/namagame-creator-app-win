@@ -141,6 +141,20 @@ button:active {
   font-size: 13px;
 }
 
+.warning {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e7c98a;
+  background: #fff6df;
+  color: #76510b;
+  font-size: 13px;
+}
+
+.warning.hidden {
+  display: none;
+}
+
 .history {
   border: 1px solid #e4d6c4;
   background: #faf6ef;

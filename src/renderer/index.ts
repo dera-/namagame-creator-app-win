@@ -86,8 +86,8 @@ const implModelOptions = [
   "gpt-5",
   "gpt-5-mini",
   "gpt-5.1-codex-mini",
-  // "gpt-5.1-codex", // タイムアウトになる可能性が高いので一旦コメントアウト
-  "gpt-5-nano"
+  "gpt-5.1-codex", // タイムアウトになる可能性が高いので一旦コメントアウト
+  "gpt-5.2-codex"
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
@@ -99,6 +99,7 @@ const modelSelect = document.getElementById("modelSelect") as HTMLSelectElement;
 const apiKeyInput = document.getElementById("apiKeyInput") as HTMLInputElement;
 const configSubmit = document.getElementById("configSubmit") as HTMLButtonElement;
 const configError = document.getElementById("configError") as HTMLDivElement;
+const configModelWarning = document.getElementById("configModelWarning") as HTMLDivElement;
 
 const generatePrompt = document.getElementById("generatePrompt") as HTMLTextAreaElement;
 const generateButton = document.getElementById("generateButton") as HTMLButtonElement;
@@ -160,6 +161,18 @@ function setLoading(isLoading: boolean, message = "生成中...", cancellable = 
 
 function setError(element: HTMLElement, message?: string): void {
   element.textContent = message || "";
+}
+
+function setConfigModelWarning(model: string): void {
+  const timeoutRiskModels = new Set(["gpt-5.1-codex", "gpt-5.2-codex"]);
+  if (timeoutRiskModels.has(model)) {
+    configModelWarning.textContent =
+      "このモデルは処理に時間がかかり、最悪の場合はタイムアウトする可能性があります。タイムアウトした場合は別のモデルに切り替えてください。";
+    configModelWarning.classList.remove("hidden");
+    return;
+  }
+  configModelWarning.textContent = "";
+  configModelWarning.classList.add("hidden");
 }
 
 function renderHistory(): void {
@@ -455,6 +468,11 @@ function bindEvents(): void {
   // debugOpenMode.addEventListener("change", () => {
   //   setDebugOpenMode(debugOpenMode.value);
   // });
+
+  modelSelect.addEventListener("change", () => {
+    setConfigModelWarning(modelSelect.value);
+  });
+  setConfigModelWarning(modelSelect.value);
 
   configSubmit.addEventListener("click", () => {
     handleConfigSubmit();
