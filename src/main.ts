@@ -707,13 +707,6 @@ game.json が存在する場合は init_project を実行しないでくださ�
 テンプレート生成は ${targetDir} のみで行い、別のディレクトリは作らないでください。
 TypeScriptテンプレートは禁止です。JavaScriptテンプレートのみを使用してください。
 出力は必ず単一のJSONオブジェクトのみで返してください(説明文や余計な出力は禁止)。
-高速化のため、以下は必要な場合のみ実行してください。
-- format_with_eslint: 大きな変更がある場合のみ
-- run_complete_audio: 音声ファイルの新規追加・変更時のみ。利用する場合は、以下に従うこと
-  - akashic_scan_asset 利用前に1度だけ利用すること
-  - directoryName にプロジェクトの audio ディレクトリ(無い場合は音声ファイルが格納されているディレクトリ)のパスを指定すること
-- akashic_scan_asset: アセット(画像・音声・スクリプト・テキスト)の新規追加・削除時のみ(画像や音声の場合は変更時も含む)
-- headless_akashic_test: 新規作成または大きな変更がある場合のみ
 
 implement_niconama_game を使って、ニコ生ゲームを実装してください。
 `;
@@ -822,7 +815,7 @@ async function runGeneration(
   const controller = new AbortController();
   currentGenerationController?.abort();
   currentGenerationController = controller;
-  const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1200000); // 20分でタイムアウトとする
+  const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1800000); // 30分でタイムアウトとする
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   const shouldUseDesignModel =

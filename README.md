@@ -13,15 +13,13 @@
 ## 環境設定
 ### 必須
 - Node.js (LTS推奨)
-- pnpm (package.json の `packageManager` に準拠)
-- Git
 - ffmpeg
 - @akashic/akashic-cli
 
 ### 初期セットアップ
 ```bash
 git submodule update --init --recursive
-pnpm install
+npm install
 ```
 
 ### Playground ビルド
@@ -50,17 +48,17 @@ cd ..
 ## ビルド
 ### 開発ビルド
 ```bash
-pnpm run build
+npm run build
 ```
 
 ### アプリ起動
 ```bash
-pnpm start
+npm start
 ```
 
 ### 配布用パッケージ
 ```bash
-pnpm run pack
+npm run pack
 ```
 
 ## ライセンス

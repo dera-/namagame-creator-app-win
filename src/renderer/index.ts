@@ -86,7 +86,8 @@ const implModelOptions = [
   "gpt-5",
   "gpt-5-mini",
   "gpt-5.1-codex-mini",
-  "gpt-5.1-codex"
+  // "gpt-5.1-codex", // タイムアウトになる可能性が高いので一旦コメントアウト
+  "gpt-5-nano"
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
