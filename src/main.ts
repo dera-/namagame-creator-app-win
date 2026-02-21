@@ -987,12 +987,12 @@ function validateGameJson(gameJson: GameJson): string[] {
     }
   }
 
-  if (!gameJson.environment?.["sandbox-runtime"]) {
-    errors.push("environment.sandbox-runtimeがありません。");
-  }
-  if (!gameJson.environment?.nicolive?.supportedModes) {
-    errors.push("environment.nicolive.supportedModesがありません。");
-  }
+  // if (!gameJson.environment?.["sandbox-runtime"]) {
+  //   errors.push("environment.sandbox-runtimeがありません。");
+  // }
+  // if (!gameJson.environment?.nicolive?.supportedModes) {
+  //   errors.push("environment.nicolive.supportedModesがありません。");
+  // }
 
   return errors;
 }
