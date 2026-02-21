@@ -135,6 +135,14 @@ let conversation: Array<ConversationEntry> = [];
 let currentGenerationController: AbortController | null = null;
 let cachedImplementPrompt: Array<{ role: LlmRole; content: string }> | null = null;
 
+function getGenerationTimeoutMs(): number {
+  const parsed = Number(process.env.GENERATION_TIMEOUT_MS ?? 1800000);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 1800000;
+  }
+  return parsed;
+}
+
 function getRendererHtmlPath(): string {
   const appPath = app.getAppPath();
   return path.join(appPath, "script", "renderer", "index.html");
@@ -497,8 +505,12 @@ async function createResponseWithMcpTools(
   }
 }
 
-async function startSandboxServer(projectDir: string): Promise<SandboxServer> {
-  if (sandboxServer && sandboxServer.projectDir === projectDir) {
+async function startSandboxServer(
+  projectDir: string,
+  options?: { forceRestart?: boolean }
+): Promise<SandboxServer> {
+  const forceRestart = options?.forceRestart === true;
+  if (!forceRestart && sandboxServer && sandboxServer.projectDir === projectDir) {
     return sandboxServer;
   }
   if (sandboxServer) {
@@ -815,7 +827,7 @@ async function runGeneration(
   const controller = new AbortController();
   currentGenerationController?.abort();
   currentGenerationController = controller;
-  const timeoutMs = Number(process.env.GENERATION_TIMEOUT_MS ?? 1800000); // 30分でタイムアウトとする
+  const timeoutMs = getGenerationTimeoutMs(); // デフォルトで30分でタイムアウトとする
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   const shouldUseDesignModel =
@@ -866,10 +878,11 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         : prompt;
       inputMessages.push({ role: "user", content: promptContent });
 
-      const selectedModel =
-        mode === "create" && aiConfig.model.includes("codex")
-          ? "gpt-5.1"
-          : aiConfig.model;
+      // const selectedModel =
+      //   mode === "create" && aiConfig.model.includes("codex")
+      //     ? "gpt-5.1"
+      //     : aiConfig.model;
+      const selectedModel = aiConfig.model;
       if (selectedModel !== aiConfig.model) {
         console.log(`[model] override create-mode model: ${aiConfig.model} -> ${selectedModel}`);
       }
@@ -1127,7 +1140,8 @@ async function createZipFromDir(sourceDir: string, outputPath: string): Promise<
 async function prepareGameFromProject(projectDir: string, projectName: string): Promise<GameInfo> {
   await ensureEntryPoint(projectDir);
 
-  await startSandboxServer(projectDir);
+  // Debug server may cache project contents; restart to reflect latest modified files.
+  await startSandboxServer(projectDir, { forceRestart: true });
 
   const playgroundDir = resolvePlaygroundDir();
   const serverInfo = await startLocalServer(playgroundDir);
@@ -1334,7 +1348,7 @@ ipcMain.handle("get-app-info", () => {
 
 ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
   aiConfig = config;
-  aiClient = new OpenAI({ apiKey: config.apiKey });
+  aiClient = new OpenAI({ apiKey: config.apiKey, timeout: getGenerationTimeoutMs() });
   conversation = [];
   cachedImplementPrompt = null;
 
