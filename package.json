@@ -42,6 +42,11 @@
     "appId": "com.namagame.creator",
     "productName": "Namagame Creator",
     "executableName": "namagame-creator",
+    "mac": {
+      "target": [
+        "zip"
+      ]
+    },
     "directories": {
       "output": "dist"
     },

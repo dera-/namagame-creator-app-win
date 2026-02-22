@@ -143,6 +143,14 @@ function getGenerationTimeoutMs(): number {
   return parsed;
 }
 
+function getToolCallMaxIterations(): number {
+  const parsed = Number(process.env.MCP_TOOL_CALL_MAX_ITERATIONS ?? 24);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 24;
+  }
+  return Math.floor(parsed);
+}
+
 function getRendererHtmlPath(): string {
   const appPath = app.getAppPath();
   return path.join(appPath, "script", "renderer", "index.html");
@@ -472,6 +480,7 @@ async function createResponseWithMcpTools(
 
   let response = await createResponseWithTemperature(baseBody, options);
   let iterations = 0;
+  const maxIterations = getToolCallMaxIterations();
 
   while (true) {
     const toolCalls = (response.output ?? []).filter(
@@ -481,8 +490,8 @@ async function createResponseWithMcpTools(
       return response;
     }
     iterations += 1;
-    if (iterations > 12) {
-      throw new Error("ツール呼び出しが多すぎるため中断しました。");
+    if (iterations > maxIterations) {
+      throw new Error(`ツール呼び出しが多すぎるため中断しました。上限: ${maxIterations}`);
     }
 
     const outputs = await Promise.all(
@@ -1133,7 +1142,7 @@ async function openDebugWindow(): Promise<void> {
 
 async function createZipFromDir(sourceDir: string, outputPath: string): Promise<void> {
   const zip = new AdmZip();
-  zip.addLocalFolder(sourceDir);
+  addDirectoryToZipFiltered(zip, sourceDir, sourceDir);
   zip.writeZip(outputPath);
 }
 
@@ -1231,6 +1240,60 @@ function toErrorCode(error: unknown): string | undefined {
   return undefined;
 }
 
+function isIgnoredMetadataName(name: string): boolean {
+  if (
+    name === "__MACOSX" ||
+    name === ".DS_Store" ||
+    name === "Thumbs.db" ||
+    name === "desktop.ini" ||
+    name.startsWith("._")
+  ) {
+    return true;
+  }
+  return /Zone\.Identifier$/i.test(name);
+}
+
+function isIgnoredMetadataPath(targetPath: string): boolean {
+  return isIgnoredMetadataName(path.basename(targetPath));
+}
+
+async function removeIgnoredMetadataFiles(rootDir: string): Promise<void> {
+  const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (isIgnoredMetadataName(entry.name)) {
+      await fs.rm(fullPath, { recursive: true, force: true });
+      continue;
+    }
+    if (entry.isDirectory()) {
+      await removeIgnoredMetadataFiles(fullPath);
+    }
+  }
+}
+
+function addDirectoryToZipFiltered(zip: AdmZip, rootDir: string, currentDir: string): void {
+  const entries = fsSync.readdirSync(currentDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(currentDir, entry.name);
+    if (isIgnoredMetadataPath(fullPath)) {
+      continue;
+    }
+    if (entry.isDirectory()) {
+      addDirectoryToZipFiltered(zip, rootDir, fullPath);
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+    const relativePath = path.relative(rootDir, fullPath);
+    const zipDir = path
+      .dirname(relativePath)
+      .replace(/\\/g, "/")
+      .replace(/^\.$/, "");
+    zip.addLocalFile(fullPath, zipDir, path.basename(fullPath));
+  }
+}
+
 async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
   const stats = await fs.stat(sourceDir).catch(() => null);
   if (!stats?.isDirectory()) {
@@ -1248,7 +1311,11 @@ async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
   const targetDir = path.join(projectsDir, projectId);
   await fs.rm(targetDir, { recursive: true, force: true });
   await fs.mkdir(targetDir, { recursive: true });
-  await fs.cp(sourceDir, targetDir, { recursive: true });
+  await fs.cp(sourceDir, targetDir, {
+    recursive: true,
+    filter: (entryPath) => !isIgnoredMetadataPath(entryPath),
+  });
+  await removeIgnoredMetadataFiles(targetDir);
 
   const projectName = path.basename(sourceDir);
   return prepareGameFromProject(targetDir, projectName);
@@ -1547,6 +1614,7 @@ ipcMain.handle(
           assertZipBuffer(zipBuffer);
           const zip = new AdmZip(zipBuffer);
           zip.extractAllTo(projectDir, true);
+          await removeIgnoredMetadataFiles(projectDir);
           console.log(`[timing] extractZip: ${Date.now() - extractStart}ms`);
         } else {
           throw new Error("projectDirまたはprojectZipBase64がありません。");
