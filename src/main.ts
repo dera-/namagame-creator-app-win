@@ -143,6 +143,14 @@ function getGenerationTimeoutMs(): number {
   return parsed;
 }
 
+function getToolCallMaxIterations(): number {
+  const parsed = Number(process.env.MCP_TOOL_CALL_MAX_ITERATIONS ?? 24);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 24;
+  }
+  return Math.floor(parsed);
+}
+
 function getRendererHtmlPath(): string {
   const appPath = app.getAppPath();
   return path.join(appPath, "script", "renderer", "index.html");
@@ -472,6 +480,7 @@ async function createResponseWithMcpTools(
 
   let response = await createResponseWithTemperature(baseBody, options);
   let iterations = 0;
+  const maxIterations = getToolCallMaxIterations();
 
   while (true) {
     const toolCalls = (response.output ?? []).filter(
@@ -481,8 +490,8 @@ async function createResponseWithMcpTools(
       return response;
     }
     iterations += 1;
-    if (iterations > 12) {
-      throw new Error("ツール呼び出しが多すぎるため中断しました。");
+    if (iterations > maxIterations) {
+      throw new Error(`ツール呼び出しが多すぎるため中断しました。上限: ${maxIterations}`);
     }
 
     const outputs = await Promise.all(
