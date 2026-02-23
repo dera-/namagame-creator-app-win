@@ -181,6 +181,34 @@
         font-weight: 700;
       }
 
+      footer {
+        max-width: 1040px;
+        margin: 0 auto 28px;
+        padding: 0 20px;
+      }
+
+      .footer-inner {
+        background: #eef5f2;
+        border: 1px solid #cfe1da;
+        border-radius: 14px;
+        padding: 14px 16px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 8px 16px;
+        color: #2d3f38;
+      }
+
+      .footer-inner a {
+        color: #0b5b52;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .footer-inner a:hover {
+        text-decoration: underline;
+      }
+
       @media (min-width: 860px) {
         .cards {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -288,5 +316,12 @@ npm start</code></pre>
         </div>
       </section>
     </main>
+
+    <footer>
+      <div class="footer-inner">
+        <div>© Namagame Creator / Developed by dera-</div>
+        <a href="terms.html">利用規約</a>
+      </div>
+    </footer>
   </body>
 </html>
