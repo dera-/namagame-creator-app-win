@@ -165,6 +165,22 @@
         font-weight: 700;
       }
 
+      .notice {
+        background: #fff8e8;
+        border: 1px solid #efd8a3;
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+
+      .notice strong {
+        color: #7a4a00;
+      }
+
+      .notice a {
+        color: #0b5b52;
+        font-weight: 700;
+      }
+
       @media (min-width: 860px) {
         .cards {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -185,6 +201,13 @@
     </header>
 
     <main>
+      <section class="notice">
+        <strong>このアプリの利用には OpenAI APIキーが必要です。</strong><br />
+        APIキーの発行・管理は
+        <a href="https://platform.openai.com/" target="_blank" rel="noreferrer">OpenAI Platform</a>
+        から行えます。
+      </section>
+
       <section>
         <h2>アプリをダウンロードする</h2>
         <div class="cards">
