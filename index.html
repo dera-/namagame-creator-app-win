@@ -1,48 +1,269 @@
 <!doctype html>
 <html lang="ja">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ゲーム一覧</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Namagame Creator 配布ページ</title>
     <style>
       :root {
-        color-scheme: light;
+        --bg: #f8f6f0;
+        --paper: #fffdf7;
+        --ink: #1f2a34;
+        --muted: #5f6b75;
+        --accent: #006f5f;
+        --accent-soft: #d7f4ee;
+        --line: #d8dfd7;
       }
+
+      * {
+        box-sizing: border-box;
+      }
+
       body {
-        margin: 32px;
-        font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
-        line-height: 1.6;
-        color: #222;
-        background: #fafafa;
-      }
-      h1 {
-        margin: 0 0 16px;
-        font-size: 28px;
-      }
-      ul {
-        list-style: none;
-        padding: 0;
         margin: 0;
+        font-family: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 20% 0%, #fff5cf 0%, transparent 45%),
+          radial-gradient(circle at 90% 20%, #dff8ff 0%, transparent 40%),
+          var(--bg);
+        line-height: 1.75;
       }
-      li {
-        margin: 8px 0;
+
+      header {
+        padding: 56px 20px 40px;
       }
-      a {
-        color: #0a5bd5;
+
+      .hero {
+        max-width: 1040px;
+        margin: 0 auto;
+        background: linear-gradient(130deg, #113c47 0%, #0b5b52 100%);
+        color: #fff;
+        border-radius: 20px;
+        padding: 36px;
+        box-shadow: 0 20px 40px rgba(17, 60, 71, 0.2);
+      }
+
+      .hero h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 3.2vw, 2.5rem);
+      }
+
+      .hero p {
+        margin: 0;
+        color: #daf5f1;
+      }
+
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 0 20px 56px;
+        display: grid;
+        gap: 20px;
+      }
+
+      section {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 24px;
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 1.4rem;
+      }
+
+      .cards {
+        display: grid;
+        gap: 12px;
+      }
+
+      .card {
+        background: #f4faf8;
+        border: 1px solid #cde4dd;
+        border-radius: 12px;
+        padding: 14px 16px;
+      }
+
+      .btn {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 8px 14px;
+        background: var(--accent);
+        color: #fff;
         text-decoration: none;
+        border-radius: 999px;
+        font-weight: 700;
       }
-      a:hover {
-        text-decoration: underline;
+
+      .btn:hover {
+        opacity: 0.9;
+      }
+
+      code {
+        font-family: "UDEV Gothic 35", "Cica", "Consolas", monospace;
+        background: #f1f5f6;
+        color: #17303a;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      pre {
+        margin: 0;
+        background: #0d1117;
+        color: #f1f5f8;
+        border-radius: 12px;
+        padding: 12px;
+        overflow-x: auto;
+      }
+
+      pre code {
+        background: transparent;
+        color: inherit;
+        padding: 0;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .screen {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      .screen img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .screen .body {
+        padding: 14px;
+      }
+
+      .screen h3 {
+        margin: 0 0 8px;
+      }
+
+      .sample-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .sample-links a {
+        text-decoration: none;
+        color: var(--accent);
+        background: var(--accent-soft);
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-weight: 700;
+      }
+
+      @media (min-width: 860px) {
+        .cards {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
       }
     </style>
   </head>
   <body>
-    <h1>ゲーム一覧</h1>
-    <ul>
-      <li><a href="games/gyouda_quiz/index.html">行田市/行田市議会クイズ</a></li>
-      <li><a href="games/kenkou_quiz/index.html">健康・健康食品クイズ</a></li>
-      <li><a href="games/otsuri_kaesu/index.html">お釣りマスター開店準備中</a></li>
-      <li><a href="games/shinkeisuijaku/index.html">神経衰弱ランキング on ニコ生風</a></li>
-    </ul>
+    <header>
+      <div class="hero">
+        <h1>Namagame Creator 配布ページ</h1>
+        <p>ニコ生ゲームをテキストから生成し、実行確認と配布までを行えるデスクトップアプリです。</p>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <h2>アプリをダウンロードする</h2>
+        <div class="cards">
+          <div class="card">
+            <strong>Windows向け</strong>
+            <div>
+              <a class="btn" href="https://github.com/dera-/namagame-creator-app-win/releases/download/v1.0.0/win-unpacked.zip">win-unpacked.zip をダウンロード</a>
+            </div>
+          </div>
+          <div class="card">
+            <strong>Linux向け</strong>
+            <div>
+              <a class="btn" href="https://github.com/dera-/namagame-creator-app-win/releases/download/v1.0.0/linux-unpacked.zip">linux-unpacked.zip をダウンロード</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>ソースからビルドして利用する</h2>
+        <p>ダウンロード済みバイナリではなく自分でビルドする場合は、以下の手順で実行します。</p>
+        <pre><code>git clone https://github.com/dera-/namagame-creator-app-win.git
+cd namagame-creator-app-win
+git submodule update --init --recursive
+npm install
+cd akashic-mcp
+npm install
+cd ..
+cd playground
+npm install
+npm run build
+cd ..
+npm run build
+npm start</code></pre>
+        <p>
+          詳細な説明や最新情報は
+          <a href="https://github.com/dera-/namagame-creator-app-win/blob/main/README.md">README.md</a>
+          を参照してください。
+        </p>
+      </section>
+
+      <section>
+        <h2>利用方法と画面説明</h2>
+        <div class="grid">
+          <article class="screen">
+            <img src="images/api_settings.png" alt="API設定画面" />
+            <div class="body">
+              <h3>1. API設定画面</h3>
+              <p>利用するモデルとAPIキーを設定して、アプリ全体で使う接続情報を保存します。</p>
+            </div>
+          </article>
+
+          <article class="screen">
+            <img src="images/create_game.png" alt="ゲーム生成画面" />
+            <div class="body">
+              <h3>2. ゲーム生成画面</h3>
+              <p>作りたいゲームの内容を入力して生成できます。既存プロジェクトの読み込みにも対応しています。</p>
+            </div>
+          </article>
+
+          <article class="screen">
+            <img src="images/run_game.png" alt="ゲーム実行画面" />
+            <div class="body">
+              <h3>3. ゲーム実行画面</h3>
+              <p>生成したゲームをその場で実行して確認します。必要に応じて修正と再実行を繰り返せます。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>生成サンプルゲーム</h2>
+        本アプリで生成したサンプルゲームをブラウザで確認できます。</p>
+        <div class="sample-links">
+          <a href="games/kenkou_quiz/index.html">健康・健康食品クイズ</a>
+          <a href="games/otsuri_kaesu/index.html">お釣りマスター開店準備中</a>
+          <a href="games/solitia/index.html">ソリティア</a>
+        </div>
+      </section>
+    </main>
   </body>
 </html>
