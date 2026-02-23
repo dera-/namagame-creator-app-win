@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Namagame Creator Q&A</title>
+    <style>
+      :root {
+        --bg: #f8f6f0;
+        --paper: #fffdf7;
+        --ink: #1f2a34;
+        --line: #d8dfd7;
+        --accent: #006f5f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 20% 0%, #fff5cf 0%, transparent 45%),
+          radial-gradient(circle at 90% 20%, #dff8ff 0%, transparent 40%),
+          var(--bg);
+        line-height: 1.8;
+      }
+
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 36px 20px 48px;
+      }
+
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 24px;
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: clamp(1.6rem, 3vw, 2.2rem);
+      }
+
+      .meta {
+        margin: 0 0 18px;
+        color: #4f5c66;
+        font-size: 0.95rem;
+      }
+
+      .qa-item + .qa-item {
+        margin-top: 22px;
+        padding-top: 22px;
+        border-top: 1px solid #e2e8e4;
+      }
+
+      .q {
+        margin: 0 0 8px;
+        font-weight: 700;
+      }
+
+      .a {
+        margin: 0;
+      }
+
+      .a ul {
+        margin: 8px 0 10px;
+        padding-left: 1.25rem;
+      }
+
+      .a li + li {
+        margin-top: 6px;
+      }
+
+      .a code {
+        font-family: "UDEV Gothic 35", "Cica", "Consolas", monospace;
+        background: #f1f5f6;
+        color: #17303a;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+
+      .image-row {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .image-row img {
+        width: 100%;
+        height: auto;
+        border: 1px solid #d8dfd7;
+        border-radius: 10px;
+        background: #fff;
+      }
+
+      .image-row figure {
+        margin: 0;
+      }
+
+      .image-row figcaption {
+        margin-top: 4px;
+        color: #4f5c66;
+        font-size: 0.92rem;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-top: 22px;
+        text-decoration: none;
+        color: #fff;
+        background: var(--accent);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-weight: 700;
+      }
+
+      @media (min-width: 860px) {
+        .image-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <article class="card">
+        <h1>Namagame Creator Q&A</h1>
+        <p class="meta">最終更新日: 2026年2月23日</p>
+
+        <section class="qa-item">
+          <p class="q">Q. このアプリを使う前に、インストールしておくべきものはありますか？</p>
+          <div class="a">
+            <p>
+              <code>Node.js</code>、<code>akashic-cli</code>、<code>ffmpeg</code> のインストールが必要です。
+              ただし、音声ファイルを <code>m4a</code> / <code>ogg</code> 形式へ変換する機能を使わない場合は、<code>ffmpeg</code> は不要です。
+            </p>
+            <ul>
+              <li>
+                Node.js / akashic-cli のインストール:
+                <a href="https://akashic-games.github.io/shin-ichiba/install.html" target="_blank" rel="noreferrer">https://akashic-games.github.io/shin-ichiba/install.html</a>
+              </li>
+              <li>
+                ffmpeg のインストール:
+                <a href="https://www.ffmpeg.org/download.html" target="_blank" rel="noreferrer">https://www.ffmpeg.org/download.html</a>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. 「アプリケーションへのネットワーク受信接続を許可しますか？」というダイアログが表示されます。許可して大丈夫ですか？</p>
+          <div class="a">
+            <p>
+              はい、許可してください。許可しない場合、アプリの機能が一部利用できず、エラーになることがあります。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. ゲームは生成されましたが、エラーが出て動きません。</p>
+          <div class="a">
+            <p>
+              <code>CODE</code> タブを開き、コード下部のエラーメッセージをコピーして、
+              「〜というエラーが出ていてゲームが動かないので修正してください」のように入力し、<code>ゲーム修正</code> ボタンを押してください。
+              コード下部にエラーメッセージが表示されない場合は、デバッグ画面を開いて内容を確認してください。
+            </p>
+            <div class="image-row">
+              <figure>
+                <img src="./images/run_game_error_1.png" alt="CODEタブのエラー表示例1" />
+                <figcaption>画像1: CODEタブのエラー表示例</figcaption>
+              </figure>
+              <figure>
+                <img src="./images/run_game_error_2.png" alt="デバッグ画面でのエラー確認例2" />
+                <figcaption>画像2: デバッグ画面でのエラー確認例</figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. 画像や音声をゲームに入れるにはどうすればいいですか？</p>
+          <div class="a">
+            <p>
+              メッセージ内で画像・音声のファイルパスを指定してください。以下のように指示するとスムーズです。
+            </p>
+            <p>
+              例: 以下で指定した画像素材と音声素材をコピーして、ゲームプロジェクトのディレクトリに配置してください。
+              画像は <code>image</code> ディレクトリ、音声は <code>audio</code> ディレクトリに配置し、ゲームから利用してください。
+            </p>
+            <ul>
+              <li>画像素材: サンプル画像 <code>C:\Users\hoge\workspace\game\image\sample.png</code></li>
+              <li>音声素材: BGM <code>C:\Users\hoge\workspace\game\audio\bgm.mp3</code></li>
+              <li>音声素材: SE <code>C:\Users\hoge\workspace\game\audio\se.mp3</code></li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. 音声が鳴りません。</p>
+          <div class="a">
+            <p>
+              まず <code>game.json</code> に対象の音声ファイルが登録されているか確認してください。
+              登録されていない場合は、メッセージで明示的に「音声ファイルを <code>m4a</code> / <code>ogg</code> 形式に変換して登録する」と指示するのがおすすめです。
+              登録済みでも再生できない場合は、エラー発生時と同じ手順でエラーメッセージを確認し、修正を依頼してください。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. 完成前ですが、途中まで作った内容を保存しておきたいです。</p>
+          <div class="a">
+            <p>
+              「ニコ生ゲームをダウンロード」の右隣にある「▽」ボタンを押し、「プロジェクト」を選択してください。
+              生成したゲームを、指定した場所に zip 形式で保存できます。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. 既存のニコ生ゲームの改造はできますか？</p>
+          <div class="a">
+            <p>
+              「既存のプロジェクトの読み込み」から可能です。
+              ただし本アプリがサポートしている言語は JavaScript のため、TypeScript で開発されたプロジェクトを読み込む場合は、ビルド後の JavaScript を対象にしてください。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. おすすめの設計モデルと実装モデルは何ですか？</p>
+          <div class="a">
+            <p>
+              一例として、設計モデルは <code>gpt-5-mini</code>、実装モデルは <code>gpt-5.2-codex</code> をおすすめします。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. OpenAI の APIキーは有料ですか？</p>
+          <div class="a">
+            <p>
+              はい、有料です。初回登録時に無料クレジットが付与される場合もありますが、継続利用にはクレジット購入が必要です。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. 1つのゲーム生成にかかる料金はどれくらいですか？</p>
+          <div class="a">
+            <p>
+              ゲームの内容や規模によって変わるため一概には言えませんが、目安として、1分程度のランキング形式のニコ生ゲームを生成・修正する場合、約 2 USD 程度になることがあります。
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. アプリに不具合がある場合、どこに連絡すればよいですか？</p>
+          <div class="a">
+            <p>
+              以下の GitHub Issues へ、不具合内容を記載してください。状況により対応できない場合があります。
+            </p>
+            <p>
+              <a href="https://github.com/dera-/namagame-creator-app-win/issues" target="_blank" rel="noreferrer">https://github.com/dera-/namagame-creator-app-win/issues</a>
+            </p>
+          </div>
+        </section>
+
+        <section class="qa-item">
+          <p class="q">Q. アプリ本体ではなく、内部で使っている MCP サーバーだけを使いたいです。</p>
+          <div class="a">
+            <p>
+              <code>akashic-mcp</code> をローカルで起動し、MCP サーバー対応の任意の LLM エージェントから利用できます。
+              詳細は以下を参照してください。
+            </p>
+            <p>
+              <a href="https://github.com/dera-/akashic-mcp" target="_blank" rel="noreferrer">https://github.com/dera-/akashic-mcp</a>
+            </p>
+          </div>
+        </section>
+
+        <a class="back-link" href="index.html">トップページへ戻る</a>
+      </article>
+    </main>
+  </body>
+</html>
