@@ -72,8 +72,8 @@ declare global {
 }
 
 const designModelOptions = [
-  "gpt-5-nano",
   "gpt-5-mini",
+  "gpt-5-nano",
   "gpt-4.1-nano",
   "gpt-4.1-mini",
   "gpt-4o-mini",
@@ -81,13 +81,13 @@ const designModelOptions = [
 ];
 
 const implModelOptions = [
+  "gpt-5.2-codex",
   "gpt-5.2",
   "gpt-5.1",
   "gpt-5",
   "gpt-5-mini",
   "gpt-5.1-codex-mini",
   "gpt-5.1-codex", // タイムアウトになる可能性が高いので一旦コメントアウト
-  "gpt-5.2-codex"
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
@@ -164,7 +164,7 @@ function setError(element: HTMLElement, message?: string): void {
 }
 
 function setConfigModelWarning(model: string): void {
-  const timeoutRiskModels = new Set(["gpt-5.1-codex", "gpt-5.2-codex"]);
+  const timeoutRiskModels = new Set(["gpt-5.1-codex", "gpt-5.1-codex-mini"]);
   if (timeoutRiskModels.has(model)) {
     configModelWarning.textContent =
       "このモデルは処理に時間がかかり、最悪の場合はタイムアウトする可能性があります。タイムアウトした場合は別のモデルに切り替えてください。";

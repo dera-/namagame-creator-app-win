@@ -61,5 +61,18 @@ npm start
 npm run pack
 ```
 
+### 署名付きビルド
+詳細手順は [docs/code-signing.md](docs/code-signing.md) を参照してください。
+
+```bash
+# 1) 自己署名証明書を作成
+npm run cert:create:self-signed
+
+# 2) 署名付きビルド
+npm run pack:win:signed
+npm run pack:mac:signed
+npm run pack:linux:signed
+```
+
 ## ライセンス
 MIT License (package.json の `license` に準拠)

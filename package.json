@@ -12,7 +12,18 @@
     "build": "tsc -p ./ && node tools/copy-assets.js",
     "start": "npm run build && electron .",
     "prepare:mcp": "node tools/prepare-embedded-mcp.js",
-    "pack": "npm run prepare:mcp && npm run build && electron-builder",
+    "cert:create:self-signed": "node tools/signing/generate-self-signed-certs.cjs",
+    "pack": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs none",
+    "pack:signed": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs self-signed",
+    "pack:win": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs none --win",
+    "pack:mac": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs none --mac",
+    "pack:linux": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs none --linux",
+    "pack:win:signed": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs self-signed --win",
+    "pack:mac:signed": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs self-signed --mac",
+    "pack:linux:signed": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs self-signed --linux",
+    "pack:win:prod": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs production --win",
+    "pack:mac:prod": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs production --mac",
+    "pack:linux:prod": "npm run prepare:mcp && npm run build && node tools/signing/run-electron-builder.cjs production --linux",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -34,47 +45,8 @@
     "@types/adm-zip": "^0.5.5",
     "@types/node": "^25.0.3",
     "electron": "^32.0.0",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
-  },
-  "build": {
-    "appId": "com.namagame.creator",
-    "productName": "Namagame Creator",
-    "executableName": "namagame-creator",
-    "mac": {
-      "target": [
-        "zip"
-      ]
-    },
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "script/**",
-      "akashic-mcp/**",
-      "package.json",
-      "node_modules/**"
-    ],
-    "asar": true,
-    "asarUnpack": [
-      "akashic-mcp/**"
-    ],
-    "extraResources": [
-      {
-        "from": "akashic-mcp",
-        "to": "akashic-mcp",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "dera-",
-        "repo": "namagame-creator-app-win"
-      }
-    ]
   }
 }
