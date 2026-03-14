@@ -1,13 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import crypto from "node:crypto";
 import OpenAI from "openai";
-import { ConsoleLogger } from "@akashic/akashic-cli-commons";
-import { promiseExportZip } from "@akashic/akashic-cli-export/lib/zip/exportZip.js";
 import pkg from 'electron-updater';
 import type {
   AiConfig,
@@ -28,10 +25,10 @@ import {
   type ConversationEntry,
 } from "./main/generation.js";
 import {
+  createNicoliveZip,
   createZipFromDir,
   ensureEntryPoint,
   isIgnoredMetadataPath,
-  readGameJsonIfExists,
   readGameSize,
   removeIgnoredMetadataFiles,
 } from "./main/project.js";
@@ -46,11 +43,6 @@ import {
 
 const { autoUpdater } = pkg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const require = createRequire(import.meta.url);
-const exportPackageJson = require("@akashic/akashic-cli-export/package.json") as {
-  version?: string;
-};
 
 let mainWindow: BrowserWindow | null = null;
 let debugWindow: BrowserWindow | null = null;
@@ -212,49 +204,6 @@ function getDownloadableGame(): GameInfo | null {
     return lastSuccessfulGame;
   }
   return null;
-}
-
-async function createNicoliveZip(projectDir: string, outputPath: string): Promise<void> {
-  const logger = new ConsoleLogger({ quiet: true });
-  const version = exportPackageJson.version ?? "unknown";
-
-  await promiseExportZip({
-    bundle: true,
-    babel: true,
-    minify: undefined,
-    minifyJs: undefined,
-    minifyJson: undefined,
-    terser: undefined,
-    packImage: undefined,
-    strip: true,
-    source: projectDir,
-    dest: outputPath,
-    force: true,
-    hashLength: 20,
-    logger,
-    omitUnbundledJs: false,
-    targetService: "nicolive",
-    nicolive: true,
-    resolveAkashicRuntime: true,
-    preservePackageJson: undefined,
-    exportInfo: {
-      version,
-      option: {
-        quiet: true,
-        force: true,
-        strip: true,
-        minify: undefined,
-        minifyJs: undefined,
-        minifyJson: undefined,
-        bundle: true,
-        babel: true,
-        hashFilename: true,
-        targetService: "nicolive",
-        nicolive: true,
-        preservePackageJson: undefined,
-      },
-    },
-  });
 }
 
 async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {

@@ -1,7 +1,16 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
 import AdmZip from "adm-zip";
+import { ConsoleLogger } from "@akashic/akashic-cli-commons";
+import { promiseExportZip } from "@akashic/akashic-cli-export/lib/zip/exportZip.js";
+
+const require = createRequire(import.meta.url);
+const exportPackageJson = require("@akashic/akashic-cli-export/package.json") as {
+  version?: string;
+};
 
 export type GenerationPayload = {
   projectName?: string;
@@ -278,4 +287,83 @@ export async function createZipFromDir(sourceDir: string, outputPath: string): P
   const zip = new AdmZip();
   addDirectoryToZipFiltered(zip, sourceDir, sourceDir);
   zip.writeZip(outputPath);
+}
+
+export async function createNicoliveZip(projectDir: string, outputPath: string): Promise<void> {
+  const logger = new ConsoleLogger({ quiet: true });
+  const version = exportPackageJson.version ?? "unknown";
+  const exportSourceDir = await prepareProjectForNicoliveExport(projectDir);
+
+  try {
+    await promiseExportZip({
+      bundle: true,
+      babel: true,
+      minify: undefined,
+      minifyJs: undefined,
+      minifyJson: undefined,
+      terser: undefined,
+      packImage: undefined,
+      strip: true,
+      source: exportSourceDir,
+      dest: outputPath,
+      force: true,
+      hashLength: 20,
+      logger,
+      omitUnbundledJs: false,
+      targetService: "nicolive",
+      nicolive: true,
+      resolveAkashicRuntime: true,
+      preservePackageJson: undefined,
+      exportInfo: {
+        version,
+        option: {
+          quiet: true,
+          force: true,
+          strip: true,
+          minify: undefined,
+          minifyJs: undefined,
+          minifyJson: undefined,
+          bundle: true,
+          babel: true,
+          hashFilename: true,
+          targetService: "nicolive",
+          nicolive: true,
+          preservePackageJson: undefined,
+        },
+      },
+    });
+  } finally {
+    if (exportSourceDir !== projectDir) {
+      await fs.rm(exportSourceDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
+export async function prepareProjectForNicoliveExport(projectDir: string): Promise<string> {
+  const gameJson = await readGameJsonIfExists(projectDir);
+  if (!gameJson) {
+    throw new Error("game.jsonが見つかりません。");
+  }
+
+  const nextGameJson = structuredClone(gameJson);
+  nextGameJson.environment ??= {};
+  nextGameJson.environment["sandbox-runtime"] ??= "3";
+  nextGameJson.environment.nicolive ??= {};
+  nextGameJson.environment.nicolive.supportedModes =
+    nextGameJson.environment.nicolive.supportedModes?.length
+      ? nextGameJson.environment.nicolive.supportedModes
+      : ["ranking"];
+
+  if (JSON.stringify(nextGameJson) === JSON.stringify(gameJson)) {
+    return projectDir;
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "namagame-nicolive-"));
+  await fs.cp(projectDir, tempDir, { recursive: true });
+  await fs.writeFile(
+    path.join(tempDir, "game.json"),
+    `${JSON.stringify(nextGameJson, null, 2)}\n`,
+    "utf-8"
+  );
+  return tempDir;
 }
