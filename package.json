@@ -47,6 +47,16 @@
         "zip"
       ]
     },
+    "linux": {
+      "target": [
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "zip"
+      ]
+    },
     "directories": {
       "output": "dist"
     },
