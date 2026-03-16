@@ -63,5 +63,21 @@ npm start
 npm run pack
 ```
 
+### macOS 版で `Cannot find module @rollup/rollup-darwin-x64` が出る場合
+`@akashic/akashic-cli-export` が内部で使う `rollup` は、macOS では CPU アーキテクチャ別の optional dependency を必要とします。  
+そのため、`node_modules` を壊れた状態で作った場合や、別アーキテクチャ環境でパッケージした場合に起動エラーになります。
+
+対処手順:
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm run pack
+```
+
+補足:
+- macOS Intel で配布するなら Intel macOS 上で `npm install` と `npm run pack` を行ってください
+- Apple Silicon で配布するなら Apple Silicon macOS 上で同じ手順を実行してください
+- 配布物には Rollup のネイティブモジュールを `asar` の外に出す設定を入れています
+
 ## ライセンス
 MIT License (package.json の `license` に準拠)

@@ -12,7 +12,7 @@
     "build": "tsc -p ./ && node tools/copy-assets.js",
     "start": "npm run build && electron .",
     "prepare:mcp": "node tools/prepare-embedded-mcp.js",
-    "pack": "npm run prepare:mcp && npm run build && electron-builder",
+    "pack": "npm run prepare:mcp && npm run build && node tools/validate-rollup-native.cjs && electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -58,7 +58,9 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "akashic-mcp/**"
+      "akashic-mcp/**",
+      "node_modules/@akashic/akashic-cli-export/node_modules/@rollup/**",
+      "node_modules/@akashic/akashic-cli-export/node_modules/rollup/dist/*.node"
     ],
     "extraResources": [
       {
