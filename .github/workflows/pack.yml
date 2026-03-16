@@ -18,7 +18,7 @@ jobs:
             label: linux
           - os: windows-latest
             label: windows
-          - os: macos-13
+          - os: macos-latest
             label: macos
 
     steps:
@@ -31,14 +31,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            playground/package-lock.json
-            akashic-mcp/package-lock.json
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm i
 
       - name: Install playground dependencies
         working-directory: playground
@@ -47,6 +42,10 @@ jobs:
       - name: Build playground
         working-directory: playground
         run: npm run build
+
+      - name: Install akashic-mcp dependencies
+        working-directory: akashic-mcp
+        run: npm ci
 
       - name: Pack application
         run: npm run pack
