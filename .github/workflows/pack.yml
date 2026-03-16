@@ -1,0 +1,59 @@
+name: Pack Desktop App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    name: pack (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+          - os: windows-latest
+            label: windows
+          - os: macos-13
+            label: macos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            playground/package-lock.json
+            akashic-mcp/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install playground dependencies
+        working-directory: playground
+        run: npm ci
+
+      - name: Build playground
+        working-directory: playground
+        run: npm run build
+
+      - name: Pack application
+        run: npm run pack
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: namagame-creator-${{ matrix.label }}
+          path: dist/**
+          if-no-files-found: error
