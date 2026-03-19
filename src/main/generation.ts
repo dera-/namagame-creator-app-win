@@ -107,6 +107,7 @@ function buildDeveloperInstruction(
 MCPサーバーを使ってゲームを生成し、次のJSONのみを返してください。
 JSON形式: {"projectName":"...","projectDir":"...","summary":"...","detail":"..."}
 projectDirは必ず指定されたパスを使用してください。
+projectDirの直下に game.json を配置してください。projectDir配下に別の子ディレクトリを作ってその中にプロジェクト本体を置くことは禁止です。
 summaryは日本語で2〜3行の簡潔な内容にしてください。
 detailには修正・生成内容の全文を日本語で入れてください。
 ${modifyPolicy}
@@ -114,6 +115,7 @@ ${modifyPolicy}
 テンプレート生成は1回のみです。複数回のテンプレート生成は禁止します。
 game.json が存在する場合は init_project を実行しないでください。
 テンプレート生成は ${targetDir} のみで行い、別のディレクトリは作らないでください。
+create_game_file を使うときは directoryName に必ず ${targetDir} を指定し、filePath はその配下の相対パスだけを使ってください。game.json を更新する場合の filePath は必ず game.json にしてください。
 TypeScriptテンプレートは禁止です。JavaScriptテンプレートのみを使用してください。
 出力は必ず単一のJSONオブジェクトのみで返してください(説明文や余計な出力は禁止)。
 `;
@@ -380,7 +382,7 @@ export function createGenerationService({
     state.lastStableGame = previousGame;
     state.currentGame = { status: "generating" };
 
-    const maxFixAttempts = 1;
+    const maxFixAttempts = 2;
     let promptForAttempt = prompt;
     let lastError: unknown = null;
 
@@ -406,16 +408,7 @@ export function createGenerationService({
           const resolvedTarget = path.resolve(projectDir);
           const resolvedPayload = path.resolve(payload.projectDir);
           if (resolvedPayload !== resolvedTarget) {
-            if (!resolvedPayload.startsWith(`${resolvedTarget}${path.sep}`)) {
-              throw new Error("projectDirが指定先と一致しませんでした。");
-            }
-            const nestedGameJson = path.join(resolvedPayload, "game.json");
-            try {
-              await fs.access(nestedGameJson);
-            } catch {
-              throw new Error("projectDirが指定先と一致しませんでした。");
-            }
-            projectDir = resolvedPayload;
+            throw new Error("projectDirが指定先と完全一致しませんでした。projectDir直下にgame.jsonを配置してください。");
           }
         } else if (payload.projectZipBase64) {
           const extractStart = Date.now();
@@ -428,6 +421,13 @@ export function createGenerationService({
           console.log(`[timing] extractZip: ${Date.now() - extractStart}ms`);
         } else {
           throw new Error("projectDirまたはprojectZipBase64がありません。");
+        }
+
+        const gameJsonPath = path.join(projectDir, "game.json");
+        try {
+          await fs.access(gameJsonPath);
+        } catch {
+          throw new Error("game.jsonがprojectDir直下に見つかりません。ネストしたディレクトリを作らずに projectDir 直下へ出力してください。");
         }
 
         const projectName = payload.projectName || "namagame";
