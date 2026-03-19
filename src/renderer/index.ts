@@ -72,22 +72,19 @@ declare global {
 }
 
 const designModelOptions = [
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
   "gpt-5-mini",
   "gpt-5-nano",
-  "gpt-4.1-nano",
-  "gpt-4.1-mini",
-  "gpt-4o-mini",
-  "o4-mini",
 ];
 
 const implModelOptions = [
+  "gpt-5.4",
+  "gpt-5.3-codex",
   "gpt-5.2-codex",
   "gpt-5.2",
   "gpt-5.1",
-  "gpt-5",
-  "gpt-5-mini",
-  "gpt-5.1-codex-mini",
-  "gpt-5.1-codex",
+  "gpt-5"
 ];
 
 const screenConfig = document.getElementById("screen-config") as HTMLElement;
