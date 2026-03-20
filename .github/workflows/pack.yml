@@ -2,9 +2,15 @@ name: Pack Desktop App
 
 on:
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag name to upload dist zip artifacts to
+        required: false
+        default: ""
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   pack:
@@ -56,3 +62,11 @@ jobs:
           name: namagame-creator-${{ matrix.label }}
           path: dist/**
           if-no-files-found: error
+
+      - name: Upload zip assets to release
+        if: ${{ github.event.inputs.tag_name != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name }}
+          files: dist/*.zip
+          fail_on_unmatched_files: true
