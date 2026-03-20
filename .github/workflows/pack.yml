@@ -64,9 +64,9 @@ jobs:
           if-no-files-found: error
 
       - name: Upload zip assets to release
-        if: ${{ github.event.inputs.tag_name != '' }}
+        if: ${{ github.event.inputs.tag_name != '' && hashFiles('dist/*.zip') != '' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           files: dist/*.zip
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
