@@ -21,7 +21,9 @@ import {
 } from "./mcp.js";
 import {
   assertZipBuffer,
+  createProjectSnapshot,
   guardGameJsonAfterModify,
+  hasProjectSnapshotChanges,
   normalizeBase64,
   parseJsonFromText,
   readGameJsonIfExists,
@@ -55,6 +57,11 @@ type CreateGenerationServiceOptions = {
   getGenerationTimeoutMs: () => number;
   ensureProjectsDir: () => Promise<string>;
   prepareGameFromProject: (projectDir: string, projectName: string) => Promise<GameInfo>;
+};
+
+type ToolExecutionTrace = {
+  name: string;
+  output: string;
 };
 
 export function toUiHistory(
@@ -97,6 +104,9 @@ function buildDeveloperInstruction(
 - 変更対象ファイルを先に列挙し、そのファイルのみを編集すること。
 - 不要なファイルの削除・全面置換は行わないこと。
 - game.json は指定がない限り修正しない。
+- 最終JSONを返す前に、必ず read_project_files を使って対象プロジェクトを確認すること。
+- 最終JSONを返す前に、必ず少なくとも1回は書き込み系ツールを成功させること。通常は create_game_file を使って実ファイルを更新すること。
+- ツールを1回も使わずに、説明文と projectDir だけを返して完了してはいけない。
 - 既存の設計・ゲーム性を尊重し、ユーザーの指示に必要な最小変更で対応すること。
 - 変更点は最小限で明確に。改修対象外のファイルは触らないこと。
 `
@@ -116,16 +126,38 @@ ${modifyPolicy}
 game.json が存在する場合は init_project を実行しないでください。
 テンプレート生成は ${targetDir} のみで行い、別のディレクトリは作らないでください。
 create_game_file を使うときは directoryName に必ず ${targetDir} を指定し、filePath はその配下の相対パスだけを使ってください。game.json を更新する場合の filePath は必ず game.json にしてください。
+新規ゲーム生成では、最終JSONを返す前に validate_niconama_spec と akashic_serve を必ず実行してください。
+ツールが Error: で始まる結果を返した場合、その操作は失敗です。失敗したまま修正完了と報告してはいけません。原因を直して再実行してください。
 TypeScriptテンプレートは禁止です。JavaScriptテンプレートのみを使用してください。
 出力は必ず単一のJSONオブジェクトのみで返してください(説明文や余計な出力は禁止)。
 `;
 }
 
 function buildRepairPrompt(originalPrompt: string, errorMessage: string): string {
+  const toolGuidance =
+    errorMessage.includes("書き込み系ツールが呼ばれていません")
+      ? `
+
+重要:
+- 今回の前回応答では書き込み系ツールが一度も呼ばれていませんでした。
+- 必ず read_project_files で現状を確認し、その後 create_game_file などの書き込み系ツールで実ファイルを変更してください。
+- ツール呼び出しが成功したことを確認してから、最後に JSON を返してください。
+`
+      : errorMessage.includes("akashic_serve") || errorMessage.includes("validate_niconama_spec")
+        ? `
+
+重要:
+- 新規ゲーム生成では validate_niconama_spec と akashic_serve の両方が必須です。
+- 実装後に validate_niconama_spec を実行し、続けて akashic_serve で動作確認してください。
+- どちらかを省略したまま完了してはいけません。
+`
+      : "";
+
   return `${originalPrompt}
 
 以下の検証エラーを修正してください。既存のファイルは可能な限り保持し、必要な差分のみを修正してください。
-エラー: ${errorMessage}`;
+エラー: ${errorMessage}
+${toolGuidance}`;
 }
 
 function normalizeTemperature(value: unknown, fallback = 0.3): number {
@@ -161,13 +193,14 @@ export function createGenerationService({
   async function createResponseWithMcpTools(
     body: Record<string, unknown>,
     options?: { signal?: AbortSignal }
-  ): Promise<OpenAI.Responses.Response> {
+  ): Promise<{ response: OpenAI.Responses.Response; toolTraces: ToolExecutionTrace[] }> {
     const mcpInfo = await ensureMcpServer(options?.signal);
     const baseBody = {
       ...body,
       tools: mcpInfo.tools,
       parallel_tool_calls: true,
     };
+    const toolTraces: ToolExecutionTrace[] = [];
 
     let response = await createResponseWithTemperature(baseBody, options);
     let iterations = 0;
@@ -178,7 +211,7 @@ export function createGenerationService({
         (item) => item.type === "function_call"
       ) as ResponseFunctionToolCall[];
       if (!toolCalls || toolCalls.length === 0) {
-        return response;
+        return { response, toolTraces };
       }
       iterations += 1;
       if (iterations > maxIterations) {
@@ -188,6 +221,12 @@ export function createGenerationService({
       const outputs = await Promise.all(
         toolCalls.map((call) => callMcpTool(mcpInfo.baseUrl, call.name, call.arguments, options?.signal))
       );
+      toolCalls.forEach((call, index) => {
+        toolTraces.push({
+          name: call.name,
+          output: outputs[index],
+        });
+      });
       const toolOutputItems = toolCalls.map((call, index) => ({
         type: "function_call_output",
         call_id: call.call_id,
@@ -223,7 +262,7 @@ export function createGenerationService({
       console.warn("MCP設計プロンプトの取得に失敗しました。", error);
     }
 
-    const response = await createResponseWithMcpTools({
+    const { response } = await createResponseWithMcpTools({
       model: state.aiConfig.designModel ?? state.aiConfig.model,
       input: [
         ...promptMessages,
@@ -242,15 +281,18 @@ export function createGenerationService({
     designTemperature?: number,
     forbidGameJsonUpdate?: boolean,
     useDesignModel?: boolean
-  ): Promise<{ payload: GenerationPayload; outputText: string; designDoc: string }> {
+  ): Promise<{
+    payload: GenerationPayload;
+    outputText: string;
+    designDoc: string;
+    toolTraces: ToolExecutionTrace[];
+  }> {
     if (!state.aiClient || !state.aiConfig) {
       throw new Error("AI設定が未設定です。");
     }
 
     console.log("targetDir", targetDir);
-    const effectiveMode =
-      mode === "modify" && state.currentProjectOrigin === "imported" ? "modify" : "create";
-    const developerInstruction = buildDeveloperInstruction(effectiveMode, targetDir);
+    const developerInstruction = buildDeveloperInstruction(mode, targetDir);
     const maxAttempts = 1;
     let lastError: unknown = null;
 
@@ -273,35 +315,39 @@ export function createGenerationService({
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        if (state.conversation.length === 0) {
-          if (!state.cachedImplementPrompt) {
-            try {
-              const rawMessages = await fetchMcpPrompt(
-                (await ensureMcpServer(controller.signal)).baseUrl,
-                "implement_niconama_game",
-                { targetDir },
-                controller.signal
-              );
-              state.cachedImplementPrompt = toDeveloperMessagesFromPrompt(rawMessages);
-            } catch (error) {
-              console.warn("MCP実装プロンプトの取得に失敗しました。", error);
-            }
-          }
-          if (state.cachedImplementPrompt && state.cachedImplementPrompt.length > 0) {
-            state.cachedImplementPrompt.forEach((entry) =>
-              state.conversation.push({ role: entry.role, content: entry.content, hidden: true })
+        if (!state.cachedImplementPrompt) {
+          try {
+            const rawMessages = await fetchMcpPrompt(
+              (await ensureMcpServer(controller.signal)).baseUrl,
+              "implement_niconama_game",
+              { targetDir },
+              controller.signal
             );
-          }
-          const trimmedInstruction = developerInstruction.trim();
-          if (trimmedInstruction) {
-            state.conversation.push({ role: "developer", content: trimmedInstruction, hidden: true });
+            state.cachedImplementPrompt = toDeveloperMessagesFromPrompt(rawMessages);
+          } catch (error) {
+            console.warn("MCP実装プロンプトの取得に失敗しました。", error);
           }
         }
 
-        const inputMessages: OpenAI.Responses.ResponseInput = state.conversation.map((entry) => ({
-          role: entry.role,
-          content: entry.content,
-        }));
+        const inputMessages: OpenAI.Responses.ResponseInput = [];
+        if (state.cachedImplementPrompt && state.cachedImplementPrompt.length > 0) {
+          state.cachedImplementPrompt.forEach((entry) => {
+            inputMessages.push({
+              role: entry.role,
+              content: entry.content,
+            });
+          });
+        }
+        const trimmedInstruction = developerInstruction.trim();
+        if (trimmedInstruction) {
+          inputMessages.push({ role: "developer", content: trimmedInstruction });
+        }
+        state.conversation.forEach((entry) => {
+          inputMessages.push({
+            role: entry.role,
+            content: entry.content,
+          });
+        });
         if (designDoc) {
           inputMessages.push({ role: "user", content: `ゲーム設計文:\n${designDoc}` });
         }
@@ -314,7 +360,7 @@ export function createGenerationService({
         if (selectedModel !== state.aiConfig.model) {
           console.log(`[model] override create-mode model: ${state.aiConfig.model} -> ${selectedModel}`);
         }
-        const response = await createResponseWithMcpTools({
+        const { response, toolTraces } = await createResponseWithMcpTools({
           model: selectedModel,
           input: inputMessages,
           temperature: 0,
@@ -322,7 +368,7 @@ export function createGenerationService({
 
         const outputText = response.output_text?.trim() ?? "";
         try {
-          return { payload: parseJsonFromText(outputText), outputText, designDoc };
+          return { payload: parseJsonFromText(outputText), outputText, designDoc, toolTraces };
         } catch (error) {
           if (/init_project/i.test(outputText)) {
             throw new Error("init_project");
@@ -362,6 +408,10 @@ export function createGenerationService({
       request.mode === "modify" && state.currentGame.projectDir
         ? await readGameJsonIfExists(state.currentGame.projectDir)
         : null;
+    const previousProjectSnapshot =
+      request.mode === "modify" && state.currentGame.projectDir
+        ? await createProjectSnapshot(state.currentGame.projectDir)
+        : null;
     const previousGame = state.currentGame;
 
     let projectDir = "";
@@ -389,7 +439,7 @@ export function createGenerationService({
     for (let attempt = 1; attempt <= maxFixAttempts; attempt += 1) {
       try {
         const generationStart = Date.now();
-        const { payload, outputText, designDoc } = await runGeneration(
+        const { payload, outputText, designDoc, toolTraces } = await runGeneration(
           promptForAttempt,
           request.mode,
           projectDir,
@@ -433,9 +483,42 @@ export function createGenerationService({
         const projectName = payload.projectName || "namagame";
         let warningMessage: string | undefined;
         if (request.mode === "modify") {
+          const writeToolNames = new Set([
+            "create_game_file",
+            "import_local_assets",
+            "akashic_scan_asset",
+            "init_project",
+            "init_minimal_template",
+            "run_complete_audio",
+            "akashic_install_extension",
+          ]);
+          const usedWriteTool = toolTraces.some((trace) => writeToolNames.has(trace.name));
+          if (!usedWriteTool) {
+            const usedTools = toolTraces.map((trace) => trace.name).join(", ") || "none";
+            throw new Error(`修正処理で書き込み系ツールが呼ばれていません。使用ツール: ${usedTools}`);
+          }
+
           const guardResult = await guardGameJsonAfterModify(previousGameJson, projectDir);
           if (guardResult.restored) {
             warningMessage = "game.jsonの内容が不正だったため、元のgame.jsonに復元して続行しました。";
+          }
+          if (previousProjectSnapshot) {
+            const nextProjectSnapshot = await createProjectSnapshot(projectDir);
+            if (!hasProjectSnapshotChanges(previousProjectSnapshot, nextProjectSnapshot)) {
+              const traceSummary = toolTraces
+                .map((trace) => `${trace.name}: ${trace.output.slice(0, 120)}`)
+                .join(" | ");
+              throw new Error(`修正内容がプロジェクトに反映されていません。ファイル差分を作成してください。ツール実行: ${traceSummary || "none"}`);
+            }
+          }
+        } else {
+          const usedValidate = toolTraces.some((trace) => trace.name === "validate_niconama_spec");
+          const usedServe = toolTraces.some((trace) => trace.name === "akashic_serve");
+          if (!usedValidate || !usedServe) {
+            const usedTools = toolTraces.map((trace) => trace.name).join(", ") || "none";
+            throw new Error(
+              `新規ゲーム生成では validate_niconama_spec と akashic_serve の両方が必要です。使用ツール: ${usedTools}`
+            );
           }
         }
         const prepareStart = Date.now();

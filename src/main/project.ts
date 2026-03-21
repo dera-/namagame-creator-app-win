@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import AdmZip from "adm-zip";
 import { ConsoleLogger } from "@akashic/akashic-cli-commons";
@@ -261,6 +262,57 @@ export async function removeIgnoredMetadataFiles(rootDir: string): Promise<void>
       await removeIgnoredMetadataFiles(fullPath);
     }
   }
+}
+
+type ProjectSnapshot = Map<string, string>;
+
+async function collectProjectSnapshot(
+  rootDir: string,
+  currentDir: string,
+  snapshot: ProjectSnapshot
+): Promise<void> {
+  const entries = await fs.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (isIgnoredMetadataName(entry.name) || entry.name === "node_modules" || entry.name === ".git") {
+      continue;
+    }
+    const fullPath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      await collectProjectSnapshot(rootDir, fullPath, snapshot);
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+    const buffer = await fs.readFile(fullPath).catch(() => null);
+    if (!buffer) {
+      continue;
+    }
+    const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
+    const digest = crypto.createHash("sha256").update(buffer).digest("hex");
+    snapshot.set(relativePath, digest);
+  }
+}
+
+export async function createProjectSnapshot(projectDir: string): Promise<ProjectSnapshot> {
+  const snapshot: ProjectSnapshot = new Map();
+  await collectProjectSnapshot(projectDir, projectDir, snapshot);
+  return snapshot;
+}
+
+export function hasProjectSnapshotChanges(
+  previous: ProjectSnapshot,
+  next: ProjectSnapshot
+): boolean {
+  if (previous.size !== next.size) {
+    return true;
+  }
+  for (const [relativePath, digest] of previous.entries()) {
+    if (next.get(relativePath) !== digest) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function addDirectoryToZipFiltered(zip: AdmZip, rootDir: string, currentDir: string): void {

@@ -316,6 +316,8 @@ export async function callMcpTool(
     }
   }
 
+  console.log(`[mcp] call ${name}: ${JSON.stringify(args)}`);
+
   const response = await fetch(`${baseUrl}/proxy/call`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -328,7 +330,9 @@ export async function callMcpTool(
   }
 
   const data = await response.json().catch(() => null);
-  return toToolOutputString(data);
+  const output = toToolOutputString(data);
+  console.log(`[mcp] result ${name}: ${output.slice(0, 1000)}`);
+  return output;
 }
 
 export function shutdownMcpServer(): void {
