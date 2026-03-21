@@ -1,6 +1,6 @@
 {
   "name": "@dera-/namagame-creator-app-win",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Nicolive game generator",
   "main": "script/main.js",
   "targets": {
