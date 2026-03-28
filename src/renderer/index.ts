@@ -10,6 +10,7 @@ type GenerateResult = {
     projectName?: string;
     playgroundUrl?: string;
     debugUrl?: string;
+    isMultiplayer?: boolean;
     errorMessage?: string;
     errorCode?: string;
   };
@@ -34,6 +35,7 @@ type LoadProjectResult = {
     projectName?: string;
     playgroundUrl?: string;
     debugUrl?: string;
+    isMultiplayer?: boolean;
     errorMessage?: string;
     errorCode?: string;
   };
@@ -110,6 +112,8 @@ const forbidGameJsonGenerate = document.getElementById("forbidGameJsonGenerate")
 
 let playgroundFrame = document.getElementById("playgroundFrame") as HTMLIFrameElement;
 const gamePlaceholder = document.getElementById("gamePlaceholder") as HTMLDivElement;
+const gamePlaceholderText = document.getElementById("gamePlaceholderText") as HTMLParagraphElement;
+const gamePlaceholderLink = document.getElementById("gamePlaceholderLink") as HTMLAnchorElement;
 const playgroundLink = document.getElementById("playgroundLink") as HTMLAnchorElement;
 const debugOpenMode = document.getElementById("debugOpenMode") as HTMLSelectElement;
 const modifyPrompt = document.getElementById("modifyPrompt") as HTMLTextAreaElement;
@@ -249,10 +253,21 @@ function rebuildPlaygroundFrame(): void {
   playgroundFrame = replacement;
 }
 
-function showPlayground(url?: string, debugUrl?: string): void {
+function showPlayground(url?: string, debugUrl?: string, isMultiplayer = false): void {
   if (!url) {
     playgroundFrame.src = "";
     gamePlaceholder.style.display = "flex";
+    if (isMultiplayer && debugUrl) {
+      gamePlaceholderText.textContent =
+        "マルチプレイゲームは実行画面に埋め込めないため、デバッグ画面で確認してください。";
+      gamePlaceholderLink.href = debugUrl;
+      gamePlaceholderLink.classList.remove("hidden");
+      playgroundLink.href = debugUrl;
+      return;
+    }
+    gamePlaceholderText.textContent = "ゲームがここに表示されます。";
+    gamePlaceholderLink.href = "#";
+    gamePlaceholderLink.classList.add("hidden");
     playgroundLink.href = "#";
     return;
   }
@@ -262,7 +277,20 @@ function showPlayground(url?: string, debugUrl?: string): void {
   }
   playgroundFrame.src = cacheBustedUrl;
   gamePlaceholder.style.display = "none";
+  gamePlaceholderLink.classList.add("hidden");
   playgroundLink.href = debugUrl || url;
+}
+
+async function openDebugLink(event: Event): Promise<void> {
+  if (!window.namagame?.openDebugWindow) return;
+  event.preventDefault();
+  const result =
+    debugOpenModeValue === "external"
+      ? await window.namagame.openDebugExternal()
+      : await window.namagame.openDebugWindow();
+  if (!result.ok) {
+    setError(modifyError, result.errorMessage || "デバッグ画面を開けませんでした。");
+  }
 }
 
 async function handleProjectResult(result: LoadProjectResult): Promise<void> {
@@ -274,7 +302,7 @@ async function handleProjectResult(result: LoadProjectResult): Promise<void> {
   }
   setError(generateError, "");
   const game = result.game;
-  showPlayground(game?.playgroundUrl, game?.debugUrl);
+  showPlayground(game?.playgroundUrl, game?.debugUrl, game?.isMultiplayer);
   setScreen("play");
 }
 
@@ -402,7 +430,7 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
   if (mode === "modify") {
     rebuildPlaygroundFrame();
   }
-  showPlayground(game?.playgroundUrl, game?.debugUrl);
+  showPlayground(game?.playgroundUrl, game?.debugUrl, game?.isMultiplayer);
   if (result.history) {
     historyEntries = result.history;
     renderHistory();
@@ -548,16 +576,11 @@ function bindEvents(): void {
     });
   });
 
-  playgroundLink.addEventListener("click", async (event) => {
-    if (!window.namagame?.openDebugWindow) return;
-    event.preventDefault();
-    const result =
-      debugOpenModeValue === "external"
-        ? await window.namagame.openDebugExternal()
-        : await window.namagame.openDebugWindow();
-    if (!result.ok) {
-      setError(modifyError, result.errorMessage || "デバッグ画面を開けませんでした。");
-    }
+  playgroundLink.addEventListener("click", (event) => {
+    void openDebugLink(event);
+  });
+  gamePlaceholderLink.addEventListener("click", (event) => {
+    void openDebugLink(event);
   });
 
   document.addEventListener("click", (event) => {

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
+import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import type { ServerResponse } from "node:http";
@@ -30,8 +31,15 @@ export type SandboxServer = {
   projectDir: string;
 };
 
+export type MultiplayerServeServer = {
+  port: number;
+  projectDir: string;
+  process: ChildProcess;
+};
+
 let localServer: LocalServer | null = null;
 let sandboxServer: SandboxServer | null = null;
+let multiplayerServeServer: MultiplayerServeServer | null = null;
 
 export function getRendererHtmlPath(): string {
   const appPath = app.getAppPath();
@@ -81,6 +89,35 @@ async function getAvailablePort(): Promise<number> {
   });
 }
 
+function getAkashicServeChildPath(): string {
+  const appPath = app.getAppPath();
+  const candidates = [
+    path.join(appPath, "script", "main", "akashicServeChild.js"),
+    path.join(__dirname, "akashicServeChild.js"),
+  ];
+  const resolved = candidates.find((candidate) => fsSync.existsSync(candidate));
+  if (!resolved) {
+    throw new Error("Akashic Serve の起動スクリプトが見つかりません。");
+  }
+  return resolved;
+}
+
+async function waitForServerReady(url: string, timeoutMs = 30000): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Retry until timeout.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error("Akashic Serve の起動待機がタイムアウトしました。");
+}
+
 export async function startSandboxServer(
   projectDir: string,
   options?: { forceRestart?: boolean }
@@ -106,6 +143,99 @@ export async function startSandboxServer(
   });
   sandboxServer = { port, server, projectDir };
   return sandboxServer;
+}
+
+export async function startMultiplayerServeServer(
+  projectDir: string,
+  options?: { forceRestart?: boolean }
+): Promise<MultiplayerServeServer> {
+  const forceRestart = options?.forceRestart === true;
+  if (!forceRestart && multiplayerServeServer?.projectDir === projectDir) {
+    return multiplayerServeServer;
+  }
+
+  await closeMultiplayerServeServer();
+
+  const port = await getAvailablePort();
+  const childScriptPath = getAkashicServeChildPath();
+  const child = fork(childScriptPath, [String(port), projectDir], {
+    cwd: projectDir,
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+  });
+
+  child.stdout?.on("data", (chunk) => {
+    process.stdout.write(`[akashic-serve] ${chunk}`);
+  });
+  child.stderr?.on("data", (chunk) => {
+    process.stderr.write(`[akashic-serve] ${chunk}`);
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        child.off("message", handleMessage);
+        child.off("error", handleError);
+        child.off("exit", handleExit);
+      };
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
+      };
+      const handleMessage = (message: unknown) => {
+        if (!message || typeof message !== "object") {
+          return;
+        }
+        const typedMessage = message as { type?: string; message?: string };
+        if (typedMessage.type === "started") {
+          finish(resolve);
+          return;
+        }
+        if (typedMessage.type === "error") {
+          finish(() =>
+            reject(new Error(typedMessage.message || "Akashic Serve の起動に失敗しました。"))
+          );
+        }
+      };
+      const handleError = (error: Error) => {
+        finish(() => reject(error));
+      };
+      const handleExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        finish(() =>
+          reject(
+            new Error(
+              `Akashic Serve が終了しました (code=${code ?? "null"}, signal=${signal ?? "null"})。`
+            )
+          )
+        );
+      };
+
+      child.on("message", handleMessage);
+      child.on("error", handleError);
+      child.on("exit", handleExit);
+    });
+
+    await waitForServerReady(`http://127.0.0.1:${port}/health-check/status`, 5000);
+
+    multiplayerServeServer = {
+      port,
+      projectDir,
+      process: child,
+    };
+    child.on("exit", () => {
+      if (multiplayerServeServer?.process === child) {
+        multiplayerServeServer = null;
+      }
+    });
+    return multiplayerServeServer;
+  } catch (error) {
+    if (child.exitCode == null && !child.killed) {
+      child.kill("SIGKILL");
+    }
+    throw error;
+  }
 }
 
 async function serveStaticFile(
@@ -237,4 +367,30 @@ export function closeSandboxServer(): void {
     sandboxServer.server.close();
     sandboxServer = null;
   }
+}
+
+export async function closeMultiplayerServeServer(): Promise<void> {
+  if (!multiplayerServeServer) {
+    return;
+  }
+
+  const active = multiplayerServeServer;
+  multiplayerServeServer = null;
+  if (active.process.exitCode != null || active.process.killed) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const timeoutId = setTimeout(() => {
+      active.process.kill("SIGKILL");
+    }, 2000);
+    active.process.once("exit", () => {
+      clearTimeout(timeoutId);
+      resolve();
+    });
+    if (active.process.connected) {
+      active.process.disconnect();
+    } else {
+      active.process.kill("SIGTERM");
+    }
+  });
 }
