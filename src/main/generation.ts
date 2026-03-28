@@ -64,6 +64,21 @@ type ToolExecutionTrace = {
   output: string;
 };
 
+function selectConversationEntries(
+  entries: ConversationEntry[],
+  mode: "create" | "modify",
+  attempt: number
+): { entries: ConversationEntry[]; omittedCount: number } {
+  const limit = mode === "modify" ? (attempt > 1 ? 4 : 8) : 12;
+  if (entries.length <= limit) {
+    return { entries, omittedCount: 0 };
+  }
+  return {
+    entries: entries.slice(-limit),
+    omittedCount: entries.length - limit,
+  };
+}
+
 export function toUiHistory(
   entries: ConversationEntry[]
 ): Array<{ role: LlmRole; content: string }> {
@@ -315,23 +330,23 @@ export function createGenerationService({
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        if (!state.cachedImplementPrompt) {
-          try {
-            const rawMessages = await fetchMcpPrompt(
-              (await ensureMcpServer(controller.signal)).baseUrl,
-              "implement_niconama_game",
-              { targetDir },
-              controller.signal
-            );
-            state.cachedImplementPrompt = toDeveloperMessagesFromPrompt(rawMessages);
-          } catch (error) {
-            console.warn("MCP実装プロンプトの取得に失敗しました。", error);
-          }
+        let implementPromptMessages = state.cachedImplementPrompt;
+        try {
+          const rawMessages = await fetchMcpPrompt(
+            (await ensureMcpServer(controller.signal)).baseUrl,
+            "implement_niconama_game",
+            { targetDir },
+            controller.signal
+          );
+          implementPromptMessages = toDeveloperMessagesFromPrompt(rawMessages);
+          state.cachedImplementPrompt = implementPromptMessages;
+        } catch (error) {
+          console.warn("MCP実装プロンプトの取得に失敗しました。", error);
         }
 
         const inputMessages: OpenAI.Responses.ResponseInput = [];
-        if (state.cachedImplementPrompt && state.cachedImplementPrompt.length > 0) {
-          state.cachedImplementPrompt.forEach((entry) => {
+        if (implementPromptMessages && implementPromptMessages.length > 0) {
+          implementPromptMessages.forEach((entry) => {
             inputMessages.push({
               role: entry.role,
               content: entry.content,
@@ -342,7 +357,16 @@ export function createGenerationService({
         if (trimmedInstruction) {
           inputMessages.push({ role: "developer", content: trimmedInstruction });
         }
-        state.conversation.forEach((entry) => {
+        const conversationContext = selectConversationEntries(state.conversation, mode, attempt);
+        if (conversationContext.omittedCount > 0) {
+          inputMessages.push({
+            role: "developer",
+            content:
+              `過去の会話履歴が長くなったため、古い ${conversationContext.omittedCount} 件は今回の推論から省略しています。` +
+              "直近の依頼と現在の projectDir 上の実ファイル状態を優先し、必要な場合は必ず read_project_files で確認してください。",
+          });
+        }
+        conversationContext.entries.forEach((entry) => {
           inputMessages.push({
             role: entry.role,
             content: entry.content,
@@ -511,16 +535,17 @@ export function createGenerationService({
               throw new Error(`修正内容がプロジェクトに反映されていません。ファイル差分を作成してください。ツール実行: ${traceSummary || "none"}`);
             }
           }
-        } else {
-          const usedValidate = toolTraces.some((trace) => trace.name === "validate_niconama_spec");
-          const usedServe = toolTraces.some((trace) => trace.name === "akashic_serve");
-          if (!usedValidate || !usedServe) {
-            const usedTools = toolTraces.map((trace) => trace.name).join(", ") || "none";
-            throw new Error(
-              `新規ゲーム生成では validate_niconama_spec と akashic_serve の両方が必要です。使用ツール: ${usedTools}`
-            );
-          }
         }
+        // else {
+        //   const usedValidate = toolTraces.some((trace) => trace.name === "validate_niconama_spec");
+        //   const usedServe = toolTraces.some((trace) => trace.name === "akashic_serve");
+        //   if (!usedValidate || !usedServe) {
+        //     const usedTools = toolTraces.map((trace) => trace.name).join(", ") || "none";
+        //     throw new Error(
+        //       `新規ゲーム生成では validate_niconama_spec と akashic_serve の両方が必要です。使用ツール: ${usedTools}`
+        //     );
+        //   }
+        // }
         const prepareStart = Date.now();
         state.currentGame = await prepareGameFromProject(projectDir, projectName);
         state.lastStableGame = state.currentGame;

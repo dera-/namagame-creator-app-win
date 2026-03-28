@@ -28,6 +28,7 @@ import {
   createNicoliveZip,
   createZipFromDir,
   ensureEntryPoint,
+  isMultiplayerGame,
   isIgnoredMetadataPath,
   readGameSize,
   removeIgnoredMetadataFiles,
@@ -35,9 +36,11 @@ import {
 import {
   buildPlaygroundUrl,
   closeSandboxServer,
+  closeMultiplayerServeServer,
   getRendererHtmlPath,
   resolvePlaygroundDir,
   startLocalServer,
+  startMultiplayerServeServer,
   startSandboxServer,
 } from "./main/servers.js";
 
@@ -146,10 +149,12 @@ async function openDebugWindow(): Promise<void> {
   }
 
   const { width, height } = await readGameSize(currentGame.projectDir);
+  const windowWidth = currentGame.isMultiplayer ? Math.max(width + 420, 1280) : width;
+  const windowHeight = currentGame.isMultiplayer ? Math.max(height + 240, 900) : height;
   if (!debugWindow || debugWindow.isDestroyed()) {
     debugWindow = new BrowserWindow({
-      width,
-      height,
+      width: windowWidth,
+      height: windowHeight,
       useContentSize: true,
       autoHideMenuBar: true,
       webPreferences: {
@@ -162,7 +167,7 @@ async function openDebugWindow(): Promise<void> {
       debugWindow = null;
     });
   } else {
-    debugWindow.setContentSize(width, height);
+    debugWindow.setContentSize(windowWidth, windowHeight);
   }
 
   await debugWindow.loadURL(currentGame.debugUrl);
@@ -173,6 +178,21 @@ async function openDebugWindow(): Promise<void> {
 
 async function prepareGameFromProject(projectDir: string, projectName: string): Promise<GameInfo> {
   await ensureEntryPoint(projectDir);
+  const isMultiplayer = await isMultiplayerGame(projectDir);
+
+  if (isMultiplayer) {
+    closeSandboxServer();
+    const serverInfo = await startMultiplayerServeServer(projectDir, { forceRestart: true });
+    return {
+      status: "success",
+      projectName,
+      debugUrl: `http://127.0.0.1:${serverInfo.port}/public/`,
+      projectDir,
+      isMultiplayer: true,
+    };
+  }
+
+  await closeMultiplayerServeServer();
 
   // Debug server may cache project contents; restart to reflect latest modified files.
   await startSandboxServer(projectDir, { forceRestart: true });
@@ -193,6 +213,7 @@ async function prepareGameFromProject(projectDir: string, projectName: string): 
     playgroundUrl,
     debugUrl,
     projectDir,
+    isMultiplayer: false,
   };
 }
 
@@ -299,6 +320,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   closeSandboxServer();
+  void closeMultiplayerServeServer();
   if (debugWindow) {
     debugWindow.close();
     debugWindow = null;
@@ -374,6 +396,7 @@ ipcMain.handle("reset-session", () => {
     currentGenerationController = null;
   }
   closeSandboxServer();
+  void closeMultiplayerServeServer();
   return { ok: true };
 });
 

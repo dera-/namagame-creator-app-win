@@ -34,6 +34,8 @@ export type GameJson = {
   height?: number;
 };
 
+const MULTIPLAYER_MODES = new Set(["multi", "multi_admission"]);
+
 export function parseJsonFromText(text: string): GenerationPayload {
   const trimmed = text.trim();
   const candidates: string[] = [];
@@ -231,6 +233,12 @@ export async function readGameSize(projectDir: string): Promise<{ width: number;
   } catch {
     return { width: 640, height: 480 };
   }
+}
+
+export async function isMultiplayerGame(projectDir: string): Promise<boolean> {
+  const gameJson = await readGameJsonIfExists(projectDir);
+  const supportedModes = gameJson?.environment?.nicolive?.supportedModes ?? [];
+  return supportedModes.some((mode) => MULTIPLAYER_MODES.has(mode));
 }
 
 function isIgnoredMetadataName(name: string): boolean {

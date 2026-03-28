@@ -7,6 +7,7 @@ export interface GameInfo {
   playgroundUrl?: string;
   debugUrl?: string;
   projectDir?: string;
+  isMultiplayer?: boolean;
   errorMessage?: string;
   errorCode?: string;
 }
