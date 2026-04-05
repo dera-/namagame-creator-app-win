@@ -28,23 +28,38 @@ import {
   parseJsonFromText,
   readGameJsonIfExists,
   removeIgnoredMetadataFiles,
+  restoreProjectSnapshot,
   validateGenerationPayload,
   type GenerationPayload,
   type GameJson,
 } from "./project.js";
+
+export type AiClientLike = {
+  models: {
+    list: (options?: { signal?: AbortSignal }) => Promise<unknown>;
+  };
+  responses: {
+    create: (
+      body: Record<string, unknown>,
+      options?: { signal?: AbortSignal }
+    ) => Promise<OpenAI.Responses.Response>;
+  };
+};
 
 export type ConversationEntry = {
   role: LlmRole;
   content: string;
   summary?: string;
   hidden?: boolean;
+  pinned?: boolean;
 };
 
 export type GenerationMutableState = {
   aiConfig: AiConfig | null;
-  aiClient: OpenAI | null;
+  aiClient: AiClientLike | null;
   conversation: ConversationEntry[];
   currentGenerationController: AbortController | null;
+  generationCanceled: boolean;
   cachedImplementPrompt: Array<{ role: LlmRole; content: string }> | null;
   currentProjectOrigin: "none" | "generated" | "imported";
   currentGame: GameInfo;
@@ -59,6 +74,15 @@ type CreateGenerationServiceOptions = {
   prepareGameFromProject: (projectDir: string, projectName: string) => Promise<GameInfo>;
 };
 
+type GenerationServiceDeps = {
+  ensureMcpServer: typeof ensureMcpServer;
+  fetchMcpPrompt: typeof fetchMcpPrompt;
+  toDeveloperMessagesFromPrompt: typeof toDeveloperMessagesFromPrompt;
+  toInputMessagesFromPrompt: typeof toInputMessagesFromPrompt;
+  callMcpTool: typeof callMcpTool;
+  getToolCallMaxIterations: typeof getToolCallMaxIterations;
+};
+
 type ToolExecutionTrace = {
   name: string;
   output: string;
@@ -70,12 +94,14 @@ function selectConversationEntries(
   attempt: number
 ): { entries: ConversationEntry[]; omittedCount: number } {
   const limit = mode === "modify" ? (attempt > 1 ? 4 : 8) : 12;
-  if (entries.length <= limit) {
+  const pinnedEntries = entries.filter((entry) => entry.pinned);
+  const regularEntries = entries.filter((entry) => !entry.pinned);
+  if (regularEntries.length <= limit) {
     return { entries, omittedCount: 0 };
   }
   return {
-    entries: entries.slice(-limit),
-    omittedCount: entries.length - limit,
+    entries: [...pinnedEntries, ...regularEntries.slice(-limit)],
+    omittedCount: regularEntries.length - limit,
   };
 }
 
@@ -180,12 +206,50 @@ function normalizeTemperature(value: unknown, fallback = 0.3): number {
   return Math.min(1, Math.max(0, value));
 }
 
+function ensurePinnedConversationEntry(
+  state: GenerationMutableState,
+  entry: ConversationEntry
+): void {
+  const exists = state.conversation.some(
+    (current) =>
+      current.pinned &&
+      current.role === entry.role &&
+      current.content === entry.content &&
+      current.hidden === entry.hidden
+  );
+  if (!exists) {
+    state.conversation = [entry, ...state.conversation];
+  }
+}
+
+export const IMPLEMENT_PROMPT_HISTORY_MARKER = "実装要件プロンプト";
+export const IMPORTED_PROJECT_HISTORY_MARKER = "既存プロジェクト修正用プロンプト";
+
+export function buildImportedProjectConversationPrompt(): string {
+  return `${IMPORTED_PROJECT_HISTORY_MARKER}\n既存の読み込み済みプロジェクトを修正対象として扱います。既存ファイルを最大限維持し、必要最小限の差分だけで対応してください。`;
+}
+
 export function createGenerationService({
   state,
   getGenerationTimeoutMs,
   ensureProjectsDir,
   prepareGameFromProject,
-}: CreateGenerationServiceOptions) {
+}: CreateGenerationServiceOptions, deps: GenerationServiceDeps = {
+  ensureMcpServer,
+  fetchMcpPrompt,
+  toDeveloperMessagesFromPrompt,
+  toInputMessagesFromPrompt,
+  callMcpTool,
+  getToolCallMaxIterations,
+}) {
+  function throwIfCanceled(): void {
+    if (state.generationCanceled) {
+      const error = new Error("Generation canceled");
+      error.name = "AbortError";
+      throw error;
+    }
+  }
+
   async function createResponseWithTemperature(
     body: Record<string, unknown>,
     options?: { signal?: AbortSignal }
@@ -209,7 +273,7 @@ export function createGenerationService({
     body: Record<string, unknown>,
     options?: { signal?: AbortSignal }
   ): Promise<{ response: OpenAI.Responses.Response; toolTraces: ToolExecutionTrace[] }> {
-    const mcpInfo = await ensureMcpServer(options?.signal);
+    const mcpInfo = await deps.ensureMcpServer(options?.signal);
     const baseBody = {
       ...body,
       tools: mcpInfo.tools,
@@ -219,7 +283,7 @@ export function createGenerationService({
 
     let response = await createResponseWithTemperature(baseBody, options);
     let iterations = 0;
-    const maxIterations = getToolCallMaxIterations();
+    const maxIterations = deps.getToolCallMaxIterations();
 
     while (true) {
       const toolCalls = (response.output ?? []).filter(
@@ -234,7 +298,7 @@ export function createGenerationService({
       }
 
       const outputs = await Promise.all(
-        toolCalls.map((call) => callMcpTool(mcpInfo.baseUrl, call.name, call.arguments, options?.signal))
+        toolCalls.map((call) => deps.callMcpTool(mcpInfo.baseUrl, call.name, call.arguments, options?.signal))
       );
       toolCalls.forEach((call, index) => {
         toolTraces.push({
@@ -268,11 +332,11 @@ export function createGenerationService({
       throw new Error("AI設定が未設定です。");
     }
 
-    const mcpInfo = await ensureMcpServer(signal);
+    const mcpInfo = await deps.ensureMcpServer(signal);
     let promptMessages: Array<{ role: LlmRole; content: string }> = [];
     try {
-      const rawMessages = await fetchMcpPrompt(mcpInfo.baseUrl, "design_niconama_game", {}, signal);
-      promptMessages = toInputMessagesFromPrompt(rawMessages);
+      const rawMessages = await deps.fetchMcpPrompt(mcpInfo.baseUrl, "design_niconama_game", {}, signal);
+      promptMessages = deps.toInputMessagesFromPrompt(rawMessages);
     } catch (error) {
       console.warn("MCP設計プロンプトの取得に失敗しました。", error);
     }
@@ -312,6 +376,7 @@ export function createGenerationService({
     let lastError: unknown = null;
 
     const controller = new AbortController();
+    state.generationCanceled = false;
     state.currentGenerationController?.abort();
     state.currentGenerationController = controller;
     const timeoutMs = getGenerationTimeoutMs();
@@ -332,14 +397,24 @@ export function createGenerationService({
       try {
         let implementPromptMessages = state.cachedImplementPrompt;
         try {
-          const rawMessages = await fetchMcpPrompt(
-            (await ensureMcpServer(controller.signal)).baseUrl,
+          const rawMessages = await deps.fetchMcpPrompt(
+            (await deps.ensureMcpServer(controller.signal)).baseUrl,
             "implement_niconama_game",
             { targetDir },
             controller.signal
           );
-          implementPromptMessages = toDeveloperMessagesFromPrompt(rawMessages);
+          implementPromptMessages = deps.toDeveloperMessagesFromPrompt(rawMessages);
           state.cachedImplementPrompt = implementPromptMessages;
+          if (implementPromptMessages.length > 0) {
+            ensurePinnedConversationEntry(state, {
+              role: "developer",
+              content:
+                `${IMPLEMENT_PROMPT_HISTORY_MARKER}\n` +
+                implementPromptMessages.map((entry) => entry.content).join("\n\n"),
+              hidden: true,
+              pinned: true,
+            });
+          }
         } catch (error) {
           console.warn("MCP実装プロンプトの取得に失敗しました。", error);
         }
@@ -472,6 +547,7 @@ export function createGenerationService({
           request.useDesignModel
         );
         console.log(`[timing] runGeneration: ${Date.now() - generationStart}ms`);
+        throwIfCanceled();
 
         const payloadErrors = validateGenerationPayload(payload);
         if (payloadErrors.length > 0) {
@@ -496,6 +572,7 @@ export function createGenerationService({
         } else {
           throw new Error("projectDirまたはprojectZipBase64がありません。");
         }
+        throwIfCanceled();
 
         const gameJsonPath = path.join(projectDir, "game.json");
         try {
@@ -503,6 +580,7 @@ export function createGenerationService({
         } catch {
           throw new Error("game.jsonがprojectDir直下に見つかりません。ネストしたディレクトリを作らずに projectDir 直下へ出力してください。");
         }
+        throwIfCanceled();
 
         const projectName = payload.projectName || "namagame";
         let warningMessage: string | undefined;
@@ -580,7 +658,11 @@ export function createGenerationService({
         };
       } catch (error) {
         lastError = error;
-        if (error instanceof Error && error.name === "AbortError") {
+        if (state.generationCanceled || (error instanceof Error && error.name === "AbortError")) {
+          if (request.mode === "modify" && previousProjectSnapshot && projectDir) {
+            await restoreProjectSnapshot(projectDir, previousProjectSnapshot);
+          }
+          state.generationCanceled = false;
           state.currentGame = previousGame;
           return { ok: false, errorMessage: "キャンセルされました。", errorCode: "canceled" };
         }
@@ -611,6 +693,7 @@ export function createGenerationService({
 
   function cancelGeneration(): { ok: boolean } {
     if (state.currentGenerationController) {
+      state.generationCanceled = true;
       state.currentGenerationController.abort();
       if (state.currentGame.status === "generating" && state.lastStableGame) {
         state.currentGame = state.lastStableGame;

@@ -272,7 +272,7 @@ export async function removeIgnoredMetadataFiles(rootDir: string): Promise<void>
   }
 }
 
-type ProjectSnapshot = Map<string, string>;
+export type ProjectSnapshot = Map<string, Buffer>;
 
 async function collectProjectSnapshot(
   rootDir: string,
@@ -297,8 +297,7 @@ async function collectProjectSnapshot(
       continue;
     }
     const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
-    const digest = crypto.createHash("sha256").update(buffer).digest("hex");
-    snapshot.set(relativePath, digest);
+    snapshot.set(relativePath, Buffer.from(buffer));
   }
 }
 
@@ -315,12 +314,30 @@ export function hasProjectSnapshotChanges(
   if (previous.size !== next.size) {
     return true;
   }
-  for (const [relativePath, digest] of previous.entries()) {
-    if (next.get(relativePath) !== digest) {
+  for (const [relativePath, contents] of previous.entries()) {
+    const nextContents = next.get(relativePath);
+    if (!nextContents || !contents.equals(nextContents)) {
       return true;
     }
   }
   return false;
+}
+
+export async function restoreProjectSnapshot(
+  projectDir: string,
+  snapshot: ProjectSnapshot
+): Promise<void> {
+  const currentSnapshot = await createProjectSnapshot(projectDir);
+  for (const relativePath of currentSnapshot.keys()) {
+    if (!snapshot.has(relativePath)) {
+      await fs.rm(path.join(projectDir, relativePath), { force: true });
+    }
+  }
+  for (const [relativePath, contents] of snapshot.entries()) {
+    const targetPath = path.join(projectDir, relativePath);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, contents);
+  }
 }
 
 function addDirectoryToZipFiltered(zip: AdmZip, rootDir: string, currentDir: string): void {

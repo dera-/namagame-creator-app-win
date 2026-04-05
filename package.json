@@ -13,7 +13,7 @@
     "start": "npm run build && electron .",
     "prepare:mcp": "node tools/prepare-embedded-mcp.js",
     "pack": "npm run prepare:mcp && npm run build && node tools/validate-rollup-native.cjs && electron-builder",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --import tsx --test src/main/__tests__/*.test.ts"
   },
   "repository": {
     "type": "git",

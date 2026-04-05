@@ -9,30 +9,21 @@ import pkg from 'electron-updater';
 import type {
   AiConfig,
   DownloadResult,
-  GenerateRequest,
-  GenerateResult,
   GameInfo,
   LoadProjectResult,
   UpdateStatus,
 } from "./shared/types.js";
 import { GAME_PATH, PROJECTS_DIR_NAME, SANDBOX_PATH } from "./main/constants.js";
 import { shutdownMcpServer } from "./main/mcp.js";
-import {
-  createGenerationService,
-  toErrorCode,
-  toErrorMessage,
-  toUiHistory,
-  type ConversationEntry,
-} from "./main/generation.js";
+import { toErrorMessage } from "./main/generation.js";
 import {
   createNicoliveZip,
   createZipFromDir,
   ensureEntryPoint,
   isMultiplayerGame,
-  isIgnoredMetadataPath,
   readGameSize,
-  removeIgnoredMetadataFiles,
 } from "./main/project.js";
+import { createMainController } from "./main/controller.js";
 import {
   buildPlaygroundUrl,
   closeSandboxServer,
@@ -49,73 +40,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 let debugWindow: BrowserWindow | null = null;
-let aiConfig: AiConfig | null = null;
-let aiClient: OpenAI | null = null;
 const projectRegistry = new Map<string, string>();
-let currentGame: GameInfo = { status: "idle" };
-let lastStableGame: GameInfo | null = null;
-let currentProjectOrigin: "none" | "generated" | "imported" = "none";
-let lastSuccessfulGame: GameInfo | null = null;
-let conversation: Array<ConversationEntry> = [];
-let currentGenerationController: AbortController | null = null;
-let cachedImplementPrompt: ConversationEntry[] | null = null;
-
-const generationState = {
-  get aiConfig(): AiConfig | null {
-    return aiConfig;
-  },
-  set aiConfig(value: AiConfig | null) {
-    aiConfig = value;
-  },
-  get aiClient(): OpenAI | null {
-    return aiClient;
-  },
-  set aiClient(value: OpenAI | null) {
-    aiClient = value;
-  },
-  get conversation(): ConversationEntry[] {
-    return conversation;
-  },
-  set conversation(value: ConversationEntry[]) {
-    conversation = value;
-  },
-  get currentGenerationController(): AbortController | null {
-    return currentGenerationController;
-  },
-  set currentGenerationController(value: AbortController | null) {
-    currentGenerationController = value;
-  },
-  get cachedImplementPrompt(): ConversationEntry[] | null {
-    return cachedImplementPrompt;
-  },
-  set cachedImplementPrompt(value: ConversationEntry[] | null) {
-    cachedImplementPrompt = value;
-  },
-  get currentProjectOrigin(): "none" | "generated" | "imported" {
-    return currentProjectOrigin;
-  },
-  set currentProjectOrigin(value: "none" | "generated" | "imported") {
-    currentProjectOrigin = value;
-  },
-  get currentGame(): GameInfo {
-    return currentGame;
-  },
-  set currentGame(value: GameInfo) {
-    currentGame = value;
-  },
-  get lastStableGame(): GameInfo | null {
-    return lastStableGame;
-  },
-  set lastStableGame(value: GameInfo | null) {
-    lastStableGame = value;
-  },
-  get lastSuccessfulGame(): GameInfo | null {
-    return lastSuccessfulGame;
-  },
-  set lastSuccessfulGame(value: GameInfo | null) {
-    lastSuccessfulGame = value;
-  },
-};
 
 function getGenerationTimeoutMs(): number {
   const parsed = Number(process.env.GENERATION_TIMEOUT_MS ?? 1800000);
@@ -136,14 +61,16 @@ async function ensureProjectsDir(): Promise<string> {
   return dir;
 }
 
-const generationService = createGenerationService({
-  state: generationState,
+const controller = createMainController({
+  createAiClient: (config) => new OpenAI({ apiKey: config.apiKey, timeout: getGenerationTimeoutMs() }),
   getGenerationTimeoutMs,
   ensureProjectsDir,
   prepareGameFromProject,
+  skipApiKeyCheck: process.env.SKIP_API_KEY_CHECK === "1",
 });
 
 async function openDebugWindow(): Promise<void> {
+  const { currentGame } = controller.getState();
   if (!currentGame.debugUrl || !currentGame.projectDir) {
     throw new Error("デバッグ画面を開くための情報がありません。");
   }
@@ -218,6 +145,7 @@ async function prepareGameFromProject(projectDir: string, projectName: string): 
 }
 
 function getDownloadableGame(): GameInfo | null {
+  const { currentGame, lastSuccessfulGame } = controller.getState();
   if (currentGame.projectDir && currentGame.projectName) {
     return currentGame;
   }
@@ -225,33 +153,6 @@ function getDownloadableGame(): GameInfo | null {
     return lastSuccessfulGame;
   }
   return null;
-}
-
-async function loadProjectDirectory(sourceDir: string): Promise<GameInfo> {
-  const stats = await fs.stat(sourceDir).catch(() => null);
-  if (!stats?.isDirectory()) {
-    throw new Error("指定されたパスはディレクトリではありません。");
-  }
-  const sourceGameJson = path.join(sourceDir, "game.json");
-  try {
-    await fs.access(sourceGameJson);
-  } catch {
-    throw new Error("game.jsonが見つかりません。");
-  }
-
-  const projectsDir = await ensureProjectsDir();
-  const projectId = crypto.randomUUID();
-  const targetDir = path.join(projectsDir, projectId);
-  await fs.rm(targetDir, { recursive: true, force: true });
-  await fs.mkdir(targetDir, { recursive: true });
-  await fs.cp(sourceDir, targetDir, {
-    recursive: true,
-    filter: (entryPath) => !isIgnoredMetadataPath(entryPath),
-  });
-  await removeIgnoredMetadataFiles(targetDir);
-
-  const projectName = path.basename(sourceDir);
-  return prepareGameFromProject(targetDir, projectName);
 }
 
 function setupAutoUpdater(): void {
@@ -342,62 +243,18 @@ ipcMain.handle("get-app-info", () => {
 });
 
 ipcMain.handle("set-ai-config", async (_event, config: AiConfig) => {
-  aiConfig = config;
-  aiClient = new OpenAI({ apiKey: config.apiKey, timeout: getGenerationTimeoutMs() });
-  conversation = [];
-  cachedImplementPrompt = null;
-
-  if (process.env.SKIP_API_KEY_CHECK === "1") {
-    return { ok: true };
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    try {
-      const list = await aiClient.models.list({ signal: controller.signal });
-      // const sortedModels = [...list.data].sort(
-      //   (a, b) => (b.created ?? 0) - (a.created ?? 0)
-      // );
-      // console.log(sortedModels);
-    } finally {
-      clearTimeout(timeoutId);
-    }
-    return { ok: true };
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      return {
-        ok: false,
-        errorMessage: "APIキーの確認がタイムアウトしました。",
-        errorCode: "timeout",
-      };
-    }
-    return {
-      ok: false,
-      errorMessage: "APIキーの確認に失敗しました。ネットワーク設定を確認してください。",
-      errorCode: toErrorCode(error),
-    };
-  }
+  return controller.setAiConfig(config);
 });
 
 ipcMain.handle("get-history", () => {
-  return { history: toUiHistory(conversation) };
+  return controller.getHistory();
 });
 
 ipcMain.handle("reset-session", () => {
-  conversation = [];
-  currentGame = { status: "idle" };
-  lastStableGame = null;
-  lastSuccessfulGame = null;
-  currentProjectOrigin = "none";
-  cachedImplementPrompt = null;
-  if (currentGenerationController) {
-    currentGenerationController.abort();
-    currentGenerationController = null;
-  }
+  const result = controller.resetSession();
   closeSandboxServer();
   void closeMultiplayerServeServer();
-  return { ok: true };
+  return result;
 });
 
 ipcMain.handle("open-project-dir", async (): Promise<LoadProjectResult> => {
@@ -408,27 +265,11 @@ ipcMain.handle("open-project-dir", async (): Promise<LoadProjectResult> => {
   if (result.canceled || result.filePaths.length === 0) {
     return { ok: false };
   }
-  try {
-    const game = await loadProjectDirectory(result.filePaths[0]);
-    currentGame = game;
-    lastSuccessfulGame = game;
-    currentProjectOrigin = "imported";
-    return { ok: true, game };
-  } catch (error) {
-    return { ok: false, errorMessage: toErrorMessage(error) };
-  }
+  return controller.loadProjectDir(result.filePaths[0]);
 });
 
 ipcMain.handle("load-project-dir", async (_event, sourceDir: string): Promise<LoadProjectResult> => {
-  try {
-    const game = await loadProjectDirectory(sourceDir);
-    currentGame = game;
-    lastSuccessfulGame = game;
-    currentProjectOrigin = "imported";
-    return { ok: true, game };
-  } catch (error) {
-    return { ok: false, errorMessage: toErrorMessage(error) };
-  }
+  return controller.loadProjectDir(sourceDir);
 });
 
 ipcMain.handle("open-debug-window", async () => {
@@ -441,6 +282,7 @@ ipcMain.handle("open-debug-window", async () => {
 });
 
 ipcMain.handle("open-debug-external", async () => {
+  const { currentGame } = controller.getState();
   if (!currentGame.debugUrl) {
     return { ok: false, errorMessage: "デバッグURLがありません。" };
   }
@@ -453,13 +295,13 @@ ipcMain.handle("open-debug-external", async () => {
 });
 
 ipcMain.handle("cancel-generation", () => {
-  return generationService.cancelGeneration();
+  return controller.cancelGeneration();
 });
 
 ipcMain.handle(
   "generate-game",
-  async (_event, request: GenerateRequest): Promise<GenerateResult> =>
-    generationService.handleGenerateGame(request)
+  async (_event, request) =>
+    controller.generateGame(request)
 );
 
 

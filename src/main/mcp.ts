@@ -3,11 +3,12 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
 import type { AddressInfo } from "node:net";
+import { createRequire } from "node:module";
 import fsSync from "node:fs";
-import { app } from "electron";
 import type { LlmRole } from "../shared/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
 
 type McpTool = {
   name: string;
@@ -67,9 +68,21 @@ function getAvailablePort(): Promise<number> {
 }
 
 function resolveMcpServerEntry(): { entryPath: string; serverDir: string } {
-  const appPath = app.getAppPath();
+  let appPath = process.cwd();
+  let isPackaged = false;
+  try {
+    const electronModule = process.versions.electron
+      ? (require("electron") as { app?: { getAppPath: () => string; isPackaged?: boolean } })
+      : null;
+    if (electronModule?.app) {
+      appPath = electronModule.app.getAppPath();
+      isPackaged = Boolean(electronModule.app.isPackaged);
+    }
+  } catch {
+    // Fallback to cwd in non-Electron environments such as tests.
+  }
   const resourcesPath =
-    app.isPackaged && process.resourcesPath
+    isPackaged && process.resourcesPath
       ? path.join(process.resourcesPath, "akashic-mcp", "index.js")
       : null;
   const unpackedBase = appPath.endsWith(".asar")
