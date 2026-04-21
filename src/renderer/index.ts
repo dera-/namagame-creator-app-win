@@ -300,7 +300,9 @@ async function handleProjectResult(result: LoadProjectResult): Promise<void> {
     }
     return;
   }
-  setError(generateError, "");
+  await refreshHistory();
+  setError(generateError, result.errorMessage || "");
+  setError(modifyError, result.errorMessage || "");
   const game = result.game;
   showPlayground(game?.playgroundUrl, game?.debugUrl, game?.isMultiplayer);
   setScreen("play");

@@ -3,3 +3,5 @@ script
 data
 tmp
 dist
+docs
+.codex

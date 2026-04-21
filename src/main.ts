@@ -18,6 +18,7 @@ import { shutdownMcpServer } from "./main/mcp.js";
 import { toErrorMessage } from "./main/generation.js";
 import {
   createNicoliveZip,
+  createProjectZipWithChatlog,
   createZipFromDir,
   ensureEntryPoint,
   isMultiplayerGame,
@@ -326,7 +327,11 @@ ipcMain.handle("download-project-zip", async (): Promise<DownloadResult> => {
   }
 
   try {
-    await createZipFromDir(targetGame.projectDir, result.filePath);
+    await createProjectZipWithChatlog(
+      targetGame.projectDir,
+      result.filePath,
+      controller.getState().conversation
+    );
     return { ok: true, path: result.filePath };
   } catch (error) {
     return { ok: false, errorMessage: toErrorMessage(error) };

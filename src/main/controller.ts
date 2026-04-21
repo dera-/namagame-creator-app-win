@@ -14,6 +14,7 @@ import {
 import {
   ensureEntryPoint,
   isIgnoredMetadataPath,
+  readChatlog,
   removeIgnoredMetadataFiles,
 } from "./project.js";
 
@@ -207,11 +208,14 @@ export function createMainController(deps: MainControllerDeps) {
       });
       await removeIgnoredMetadataFiles(targetDir);
       await ensureEntryPoint(targetDir);
+      const chatlogResult = await readChatlog(targetDir);
 
       const game = await deps.prepareGameFromProject(targetDir, path.basename(sourceDir));
       currentGame = game;
+      lastStableGame = game;
       lastSuccessfulGame = game;
       currentProjectOrigin = "imported";
+      conversation = chatlogResult.entries ?? [];
       const importedPrompt = buildImportedProjectConversationPrompt();
       const hasImportedPrompt = conversation.some(
         (entry) => entry.pinned && entry.content === importedPrompt
@@ -227,7 +231,7 @@ export function createMainController(deps: MainControllerDeps) {
           ...conversation,
         ];
       }
-      return { ok: true, game };
+      return { ok: true, game, errorMessage: chatlogResult.errorMessage };
     } catch (error) {
       return { ok: false, errorMessage: toErrorMessage(error) };
     }

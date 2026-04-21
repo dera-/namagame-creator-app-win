@@ -4,11 +4,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import AdmZip from "adm-zip";
 import {
   buildImportedProjectConversationPrompt,
   IMPLEMENT_PROMPT_HISTORY_MARKER,
 } from "../generation.js";
 import { createMainController } from "../controller.js";
+import { CHATLOG_FILE_NAME, createProjectZipWithChatlog } from "../project.js";
 
 type ResponseRecord = {
   model: unknown;
@@ -450,6 +452,79 @@ test("ゲーム生成: 既存プロジェクトを読み込める", async () => 
   assert.notEqual(loaded.game?.projectDir, sourceDir);
   const copiedMain = await fs.readFile(path.join(loaded.game!.projectDir!, "script", "main.js"), "utf-8");
   assert.equal(copiedMain, "console.log('loaded');\n");
+});
+
+test("プロジェクトダウンロード: chatlog.json に会話履歴を保存できる", async () => {
+  const harness = createHarness({
+    onResponseCreate: async (_body, _request, records) => {
+      const targetDir = getLastImplementTargetDir(harness.promptArgs);
+      await writeProject(targetDir, `console.log('create ${records.length}');\n`);
+      return { id: `impl-${records.length}`, output: [], output_text: jsonResult(targetDir, "chatlog-project") };
+    },
+  });
+  await harness.controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design-model",
+    model: "impl-model",
+  });
+  const generated = await harness.controller.generateGame({
+    mode: "create",
+    prompt: "会話履歴つきで保存",
+    useDesignModel: false,
+  });
+  assert.equal(generated.ok, true);
+
+  const outputPath = path.join(await createTempDir(), "download.zip");
+  await createProjectZipWithChatlog(
+    generated.game!.projectDir!,
+    outputPath,
+    harness.controller.getState().conversation
+  );
+
+  const zip = new AdmZip(outputPath);
+  const chatlogEntry = zip.getEntry(CHATLOG_FILE_NAME);
+  assert.ok(chatlogEntry);
+  const chatlog = JSON.parse(zip.readAsText(chatlogEntry!)) as Array<{ role: string; content: string }>;
+  assert.ok(chatlog.some((entry) => entry.role === "user" && entry.content === "会話履歴つきで保存"));
+  assert.ok(chatlog.some((entry) => entry.role === "assistant"));
+});
+
+test("ゲーム生成: 読み込み時に chatlog.json から会話履歴を復元する", async () => {
+  const sourceDir = await createTempDir();
+  await writeProject(sourceDir, "console.log('loaded');\n");
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([
+      { role: "user", content: "前の相談" },
+      { role: "assistant", content: "前の詳細", summary: "前の要約" },
+    ]),
+    "utf-8"
+  );
+  const harness = createHarness();
+
+  const loaded = await harness.controller.loadProjectDir(sourceDir);
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.errorMessage, undefined);
+  assert.deepEqual(harness.controller.getHistory().history, [
+    { role: "user", content: "前の相談" },
+    { role: "assistant", content: "前の要約" },
+  ]);
+});
+
+test("ゲーム生成: 不正な chatlog.json があってもプロジェクトを読み込みエラー表示用メッセージを返す", async () => {
+  const sourceDir = await createTempDir();
+  await writeProject(sourceDir, "console.log('loaded');\n");
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([{ role: "assistant", content: 999 }]),
+    "utf-8"
+  );
+  const harness = createHarness();
+
+  const loaded = await harness.controller.loadProjectDir(sourceDir);
+  assert.equal(loaded.ok, true);
+  assert.match(loaded.errorMessage ?? "", /chatlog\.json/);
+  assert.deepEqual(harness.controller.getHistory().history, []);
 });
 
 test("ゲーム生成キャンセル: APIを中断し、生成前のプロジェクト状態へ戻す", async () => {

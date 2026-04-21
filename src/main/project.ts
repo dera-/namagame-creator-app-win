@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import AdmZip from "adm-zip";
 import { ConsoleLogger } from "@akashic/akashic-cli-commons";
 import { promiseExportZip } from "@akashic/akashic-cli-export/lib/zip/exportZip.js";
+import type { LlmRole } from "../shared/types.js";
 
 const require = createRequire(import.meta.url);
 const exportPackageJson = require("@akashic/akashic-cli-export/package.json") as {
@@ -34,7 +35,18 @@ export type GameJson = {
   height?: number;
 };
 
+export type ChatlogEntry = {
+  role: LlmRole;
+  content: string;
+  summary?: string;
+  hidden?: boolean;
+  pinned?: boolean;
+};
+
+export const CHATLOG_FILE_NAME = "chatlog.json";
+
 const MULTIPLAYER_MODES = new Set(["multi", "multi_admission"]);
+const CHATLOG_ERROR_MESSAGE = "chatlog.jsonの形式が不正なため、会話履歴を読み込めませんでした。";
 
 export function parseJsonFromText(text: string): GenerationPayload {
   const trimmed = text.trim();
@@ -115,6 +127,72 @@ export async function readGameJsonIfExists(projectDir: string): Promise<GameJson
     return JSON.parse(raw) as GameJson;
   } catch {
     return null;
+  }
+}
+
+function validateChatlogEntry(entry: unknown): ChatlogEntry | null {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const value = entry as Partial<ChatlogEntry>;
+  if (
+    (value.role !== "user" && value.role !== "assistant" && value.role !== "developer") ||
+    typeof value.content !== "string"
+  ) {
+    return null;
+  }
+  if (value.summary !== undefined && typeof value.summary !== "string") {
+    return null;
+  }
+  if (value.hidden !== undefined && typeof value.hidden !== "boolean") {
+    return null;
+  }
+  if (value.pinned !== undefined && typeof value.pinned !== "boolean") {
+    return null;
+  }
+  return {
+    role: value.role,
+    content: value.content,
+    ...(value.summary !== undefined ? { summary: value.summary } : {}),
+    ...(value.hidden !== undefined ? { hidden: value.hidden } : {}),
+    ...(value.pinned !== undefined ? { pinned: value.pinned } : {}),
+  };
+}
+
+export async function writeChatlog(projectDir: string, entries: ChatlogEntry[]): Promise<void> {
+  await fs.writeFile(
+    path.join(projectDir, CHATLOG_FILE_NAME),
+    `${JSON.stringify(entries, null, 2)}\n`,
+    "utf-8"
+  );
+}
+
+export async function readChatlog(projectDir: string): Promise<{
+  entries: ChatlogEntry[] | null;
+  errorMessage?: string;
+}> {
+  const chatlogPath = path.join(projectDir, CHATLOG_FILE_NAME);
+  const raw = await fs.readFile(chatlogPath, "utf-8").catch((error: NodeJS.ErrnoException) => {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (raw === null) {
+    return { entries: null };
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return { entries: null, errorMessage: CHATLOG_ERROR_MESSAGE };
+    }
+    const entries = parsed.map(validateChatlogEntry);
+    if (entries.some((entry) => entry === null)) {
+      return { entries: null, errorMessage: CHATLOG_ERROR_MESSAGE };
+    }
+    return { entries: entries as ChatlogEntry[] };
+  } catch {
+    return { entries: null, errorMessage: CHATLOG_ERROR_MESSAGE };
   }
 }
 
@@ -364,6 +442,21 @@ export async function createZipFromDir(sourceDir: string, outputPath: string): P
   const zip = new AdmZip();
   addDirectoryToZipFiltered(zip, sourceDir, sourceDir);
   zip.writeZip(outputPath);
+}
+
+export async function createProjectZipWithChatlog(
+  projectDir: string,
+  outputPath: string,
+  entries: ChatlogEntry[]
+): Promise<void> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "namagame-project-export-"));
+  try {
+    await fs.cp(projectDir, tempDir, { recursive: true });
+    await writeChatlog(tempDir, entries);
+    await createZipFromDir(tempDir, outputPath);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 export async function createNicoliveZip(projectDir: string, outputPath: string): Promise<void> {
