@@ -442,6 +442,79 @@ test("ゲーム生成: 入力テキスト・実装要件・設計モデル生成
   assert.equal(result.ok, true);
 });
 
+test("ゲーム生成: 添付ファイルをアセットとして配置しスキャンできる", async () => {
+  let targetDir = "";
+  const harness = createHarness({
+    onResponseCreate: async (body, _request, records) => {
+      if (records.length === 1) {
+        targetDir = getLastImplementTargetDir(harness.promptArgs);
+        await fs.access(path.join(targetDir, "assets", "user-attachments", "01-hero.txt"));
+        assert.ok(
+          getInputTexts(body.input).some((text) =>
+            text.includes("Akashic Engine からは /assets/user-attachments/01-hero.txt を assetPaths に指定")
+          )
+        );
+        return {
+          id: "impl-1",
+          output: [
+            {
+              type: "function_call",
+              name: "create_game_file",
+              arguments: JSON.stringify({
+                directoryName: targetDir,
+                filePath: "game.json",
+                content:
+                  '{"main":"./script/main.js","assets":{"main":{"type":"script","path":"script/main.js"}}}',
+              }),
+              call_id: "call-1",
+            },
+            {
+              type: "function_call",
+              name: "create_game_file",
+              arguments: JSON.stringify({
+                directoryName: targetDir,
+                filePath: "script/main.js",
+                content: "console.log('attachment');\n",
+              }),
+              call_id: "call-2",
+            },
+          ],
+          output_text: "",
+        };
+      }
+      return { id: "impl-2", output: [], output_text: jsonResult(targetDir, "attachment") };
+    },
+  });
+  await harness.controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design-model",
+    model: "impl-model",
+  });
+
+  const result = await harness.controller.generateGame({
+    mode: "create",
+    prompt: "",
+    useDesignModel: false,
+    attachments: [
+      {
+        id: "attachment-1",
+        name: "hero.txt",
+        mimeType: "text/plain",
+        dataBase64: Buffer.from("hero settings", "utf-8").toString("base64"),
+        size: 13,
+        kind: "text",
+        useAsAsset: true,
+        useAsContext: true,
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  const files = await fs.readdir(path.join(result.game!.projectDir!, "assets", "user-attachments"));
+  assert.ok(files.some((file) => file.endsWith("-hero.txt")));
+  assert.ok(harness.toolCalls.some((call) => call.name === "akashic_scan_asset"));
+});
+
 test("ゲーム生成: 既存プロジェクトを読み込める", async () => {
   const sourceDir = await createTempDir();
   await writeProject(sourceDir, "console.log('loaded');\n");

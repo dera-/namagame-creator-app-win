@@ -11,6 +11,14 @@ import type {
   LlmRole,
 } from "../shared/types.js";
 import {
+  buildAttachmentConversationEntry,
+  buildAttachmentInputItems,
+  buildAttachmentPromptNotice,
+  materializeAssetAttachments,
+  prepareAttachments,
+  type PreparedAttachment,
+} from "./attachments.js";
+import {
   callMcpTool,
   ensureMcpServer,
   fetchMcpPrompt,
@@ -357,6 +365,7 @@ export function createGenerationService({
     prompt: string,
     mode: "create" | "modify",
     targetDir: string,
+    attachments: PreparedAttachment[],
     designTemperature?: number,
     forbidGameJsonUpdate?: boolean,
     useDesignModel?: boolean
@@ -450,9 +459,17 @@ export function createGenerationService({
         if (designDoc) {
           inputMessages.push({ role: "user", content: `ゲーム設計文:\n${designDoc}` });
         }
+        const attachmentNotice = buildAttachmentPromptNotice(attachments);
+        if (attachmentNotice) {
+          inputMessages.push({ role: "user", content: attachmentNotice });
+        }
+        const attachmentInputItems = buildAttachmentInputItems(attachments);
+        if (attachmentInputItems.length > 0) {
+          inputMessages.push(...attachmentInputItems);
+        }
         const promptContent = forbidGameJsonUpdate
-          ? `${prompt}\n\n[注意] game.jsonはakashic_scan_asset以外で更新しないでください。`
-          : prompt;
+          ? `${prompt || "(テキスト入力なし。添付ファイルの内容と用途を参照して対応してください。)"}\n\n[注意] game.jsonはakashic_scan_asset以外で更新しないでください。`
+          : prompt || "(テキスト入力なし。添付ファイルの内容と用途を参照して対応してください。)";
         inputMessages.push({ role: "user", content: promptContent });
 
         const selectedModel = state.aiConfig.model;
@@ -499,8 +516,9 @@ export function createGenerationService({
 
   async function handleGenerateGame(request: GenerateRequest): Promise<GenerateResult> {
     const prompt = request.prompt.trim();
-    if (!prompt) {
-      return { ok: false, errorMessage: "テキストを入力してください。" };
+    const attachments = request.attachments ?? [];
+    if (!prompt && attachments.length === 0) {
+      return { ok: false, errorMessage: "テキストまたは添付ファイルを入力してください。" };
     }
 
     const previousGameJson =
@@ -527,6 +545,7 @@ export function createGenerationService({
       await fs.rm(projectDir, { recursive: true, force: true });
       await fs.mkdir(projectDir, { recursive: true });
     }
+    const preparedAttachments = prepareAttachments(attachments, projectDir);
 
     state.lastStableGame = previousGame;
     state.currentGame = { status: "generating" };
@@ -534,14 +553,30 @@ export function createGenerationService({
     const maxFixAttempts = 2;
     let promptForAttempt = prompt;
     let lastError: unknown = null;
+    let attachmentsReady = false;
+    let writtenAttachmentPaths: string[] = [];
 
     for (let attempt = 1; attempt <= maxFixAttempts; attempt += 1) {
       try {
+        if (!attachmentsReady) {
+          writtenAttachmentPaths = await materializeAssetAttachments(preparedAttachments);
+          if (writtenAttachmentPaths.length > 0 && request.mode === "modify") {
+            const mcpInfo = await deps.ensureMcpServer();
+            await deps.callMcpTool(
+              mcpInfo.baseUrl,
+              "akashic_scan_asset",
+              JSON.stringify({ directoryName: projectDir })
+            );
+          }
+          attachmentsReady = true;
+        }
+
         const generationStart = Date.now();
         const { payload, outputText, designDoc, toolTraces } = await runGeneration(
           promptForAttempt,
           request.mode,
           projectDir,
+          preparedAttachments,
           request.designTemperature,
           request.forbidGameJsonUpdate,
           request.useDesignModel
@@ -582,6 +617,15 @@ export function createGenerationService({
         }
         throwIfCanceled();
 
+        if (writtenAttachmentPaths.length > 0) {
+          const mcpInfo = await deps.ensureMcpServer();
+          await deps.callMcpTool(
+            mcpInfo.baseUrl,
+            "akashic_scan_asset",
+            JSON.stringify({ directoryName: projectDir })
+          );
+        }
+
         const projectName = payload.projectName || "namagame";
         let warningMessage: string | undefined;
         if (request.mode === "modify") {
@@ -595,7 +639,7 @@ export function createGenerationService({
             "akashic_install_extension",
           ]);
           const usedWriteTool = toolTraces.some((trace) => writeToolNames.has(trace.name));
-          if (!usedWriteTool) {
+          if (!usedWriteTool && !preparedAttachments.some((attachment) => attachment.useAsAsset)) {
             const usedTools = toolTraces.map((trace) => trace.name).join(", ") || "none";
             throw new Error(`修正処理で書き込み系ツールが呼ばれていません。使用ツール: ${usedTools}`);
           }
@@ -638,6 +682,14 @@ export function createGenerationService({
             hidden: true,
           });
         }
+        const attachmentConversationEntry = buildAttachmentConversationEntry(preparedAttachments);
+        if (attachmentConversationEntry) {
+          state.conversation.push({
+            role: "user",
+            content: attachmentConversationEntry,
+            hidden: true,
+          });
+        }
         state.conversation.push({ role: "user", content: prompt });
         const assistantContent = payload.detail?.trim() || outputText;
         console.log(assistantContent);
@@ -673,6 +725,9 @@ export function createGenerationService({
         const errorCode = toErrorCode(error);
         const errorMessage = toErrorMessage(error);
         if (request.mode === "modify") {
+          if (previousProjectSnapshot && projectDir) {
+            await restoreProjectSnapshot(projectDir, previousProjectSnapshot);
+          }
           state.currentGame = previousGame;
         } else {
           state.currentGame = { status: "error", errorMessage, errorCode };
@@ -684,6 +739,9 @@ export function createGenerationService({
     const errorCode = toErrorCode(lastError);
     const errorMessage = toErrorMessage(lastError);
     if (request.mode === "modify") {
+      if (previousProjectSnapshot && projectDir) {
+        await restoreProjectSnapshot(projectDir, previousProjectSnapshot);
+      }
       state.currentGame = previousGame;
     } else {
       state.currentGame = { status: "error", errorMessage, errorCode };

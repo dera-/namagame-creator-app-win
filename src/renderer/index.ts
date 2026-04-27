@@ -3,6 +3,19 @@ type UpdateStatus = {
   message?: string;
 };
 
+type AttachmentKind = "text" | "image" | "audio";
+
+type InputAttachment = {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  size: number;
+  kind: AttachmentKind;
+  useAsAsset: boolean;
+  useAsContext: boolean;
+};
+
 type GenerateResult = {
   ok: boolean;
   game?: {
@@ -53,11 +66,21 @@ declare global {
       }>;
       generateGame: (
         prompt: string,
-        options?: { designTemperature?: number; forbidGameJsonUpdate?: boolean; useDesignModel?: boolean }
+        options?: {
+          designTemperature?: number;
+          forbidGameJsonUpdate?: boolean;
+          useDesignModel?: boolean;
+          attachments?: InputAttachment[];
+        }
       ) => Promise<GenerateResult>;
       modifyGame: (
         prompt: string,
-        options?: { designTemperature?: number; forbidGameJsonUpdate?: boolean; useDesignModel?: boolean }
+        options?: {
+          designTemperature?: number;
+          forbidGameJsonUpdate?: boolean;
+          useDesignModel?: boolean;
+          attachments?: InputAttachment[];
+        }
       ) => Promise<GenerateResult>;
       cancelGeneration: () => Promise<{ ok: boolean }>;
       openDebugWindow: () => Promise<{ ok: boolean; errorMessage?: string }>;
@@ -101,6 +124,9 @@ const configError = document.getElementById("configError") as HTMLDivElement;
 const configModelWarning = document.getElementById("configModelWarning") as HTMLDivElement;
 
 const generatePrompt = document.getElementById("generatePrompt") as HTMLTextAreaElement;
+const generateAttachmentInput = document.getElementById("generateAttachmentInput") as HTMLInputElement;
+const generateAttachmentButton = document.getElementById("generateAttachmentButton") as HTMLButtonElement;
+const generateAttachmentList = document.getElementById("generateAttachmentList") as HTMLDivElement;
 const generateButton = document.getElementById("generateButton") as HTMLButtonElement;
 const goToConfigGenerate = document.getElementById("goToConfigGenerate") as HTMLButtonElement;
 const generateError = document.getElementById("generateError") as HTMLDivElement;
@@ -117,6 +143,9 @@ const gamePlaceholderLink = document.getElementById("gamePlaceholderLink") as HT
 const playgroundLink = document.getElementById("playgroundLink") as HTMLAnchorElement;
 const debugOpenMode = document.getElementById("debugOpenMode") as HTMLSelectElement;
 const modifyPrompt = document.getElementById("modifyPrompt") as HTMLTextAreaElement;
+const modifyAttachmentInput = document.getElementById("modifyAttachmentInput") as HTMLInputElement;
+const modifyAttachmentButton = document.getElementById("modifyAttachmentButton") as HTMLButtonElement;
+const modifyAttachmentList = document.getElementById("modifyAttachmentList") as HTMLDivElement;
 const modifyButton = document.getElementById("modifyButton") as HTMLButtonElement;
 const modifyError = document.getElementById("modifyError") as HTMLDivElement;
 const goToConfig = document.getElementById("goToConfig") as HTMLButtonElement;
@@ -147,6 +176,183 @@ let returnScreenAfterConfig: "generate" | "play" = "generate";
 let designTemperature = 1;
 let forbidGameJsonUpdate = false;
 let useDesignModel = true;
+let generateAttachments: InputAttachment[] = [];
+let modifyAttachments: InputAttachment[] = [];
+
+function formatFileSize(size: number): string {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAttachmentArray(mode: "create" | "modify"): InputAttachment[] {
+  return mode === "create" ? generateAttachments : modifyAttachments;
+}
+
+function setAttachmentArray(mode: "create" | "modify", attachments: InputAttachment[]): void {
+  if (mode === "create") {
+    generateAttachments = attachments;
+  } else {
+    modifyAttachments = attachments;
+  }
+}
+
+function getAttachmentListElement(mode: "create" | "modify"): HTMLDivElement {
+  return mode === "create" ? generateAttachmentList : modifyAttachmentList;
+}
+
+function getAttachmentKind(file: File): AttachmentKind | null {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (
+    file.type.startsWith("text/") ||
+    ["txt", "md", "markdown", "json", "csv", "tsv", "yaml", "yml", "xml", "html", "css", "js", "ts"].includes(ext)
+  ) {
+    return "text";
+  }
+  if (file.type.startsWith("image/")) {
+    return "image";
+  }
+  if (file.type.startsWith("audio/")) {
+    return "audio";
+  }
+  return null;
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("ファイルの読み込みに失敗しました。"));
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const commaIndex = result.indexOf(",");
+      resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderAttachments(mode: "create" | "modify"): void {
+  const list = getAttachmentListElement(mode);
+  const attachments = getAttachmentArray(mode);
+  list.innerHTML = "";
+  list.classList.toggle("empty", attachments.length === 0);
+  if (attachments.length === 0) {
+    list.textContent = "添付ファイルはまだありません。";
+    return;
+  }
+
+  attachments.forEach((attachment) => {
+    const item = document.createElement("div");
+    item.className = "attachment-item";
+
+    const header = document.createElement("div");
+    header.className = "attachment-item-header";
+
+    const metaWrapper = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "attachment-name";
+    name.textContent = attachment.name;
+    const meta = document.createElement("div");
+    meta.className = "attachment-meta";
+    meta.textContent = `${attachment.kind} / ${attachment.mimeType || "unknown"} / ${formatFileSize(attachment.size)}`;
+    metaWrapper.appendChild(name);
+    metaWrapper.appendChild(meta);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "ghost";
+    removeButton.textContent = "削除";
+    removeButton.addEventListener("click", () => {
+      setAttachmentArray(
+        mode,
+        getAttachmentArray(mode).filter((current) => current.id !== attachment.id)
+      );
+      renderAttachments(mode);
+    });
+
+    header.appendChild(metaWrapper);
+    header.appendChild(removeButton);
+    item.appendChild(header);
+
+    const purposes = document.createElement("div");
+    purposes.className = "attachment-purposes";
+
+    const buildPurposeCheckbox = (
+      labelText: string,
+      key: "useAsAsset" | "useAsContext"
+    ): HTMLLabelElement => {
+      const label = document.createElement("label");
+      label.className = "checkbox";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = attachment[key];
+      input.addEventListener("change", () => {
+        const nextAttachments = getAttachmentArray(mode).map((current) => {
+          if (current.id !== attachment.id) {
+            return current;
+          }
+          const nextUseAsAsset = key === "useAsAsset" ? input.checked : current.useAsAsset;
+          const nextUseAsContext = key === "useAsContext" ? input.checked : current.useAsContext;
+          if (!nextUseAsAsset && !nextUseAsContext) {
+            input.checked = true;
+            return current;
+          }
+          const updated = {
+            ...current,
+            useAsAsset: nextUseAsAsset,
+            useAsContext: nextUseAsContext,
+          };
+          return updated;
+        });
+        setAttachmentArray(mode, nextAttachments);
+        renderAttachments(mode);
+      });
+      label.appendChild(input);
+      label.append(` ${labelText}`);
+      return label;
+    };
+
+    purposes.appendChild(buildPurposeCheckbox("ゲームアセットとして使う", "useAsAsset"));
+    purposes.appendChild(buildPurposeCheckbox("追加情報として使う", "useAsContext"));
+    item.appendChild(purposes);
+    list.appendChild(item);
+  });
+}
+
+async function appendFiles(mode: "create" | "modify", files: FileList | null): Promise<void> {
+  if (!files || files.length === 0) {
+    return;
+  }
+  const targetError = mode === "create" ? generateError : modifyError;
+  const nextAttachments = [...getAttachmentArray(mode)];
+
+  for (const file of Array.from(files)) {
+    const kind = getAttachmentKind(file);
+    if (!kind) {
+      setError(targetError, `未対応のファイル形式です: ${file.name}`);
+      continue;
+    }
+    const dataBase64 = await readFileAsBase64(file);
+    nextAttachments.push({
+      id: crypto.randomUUID(),
+      name: file.name,
+      mimeType: file.type || "application/octet-stream",
+      dataBase64,
+      size: file.size,
+      kind,
+      useAsAsset: false,
+      useAsContext: true,
+    });
+  }
+
+  setError(targetError, "");
+  setAttachmentArray(mode, nextAttachments);
+  renderAttachments(mode);
+}
 
 function setScreen(target: "config" | "generate" | "play"): void {
   screenConfig.classList.toggle("hidden", target !== "config");
@@ -389,12 +595,13 @@ async function handleConfigSubmit(): Promise<void> {
 
 async function runGeneration(mode: "create" | "modify"): Promise<void> {
   const prompt = mode === "create" ? generatePrompt.value : modifyPrompt.value;
+  const attachments = getAttachmentArray(mode);
   const targetError = mode === "create" ? generateError : modifyError;
   const loadingMessage = mode === "create" ? "ゲーム生成中..." : "ゲーム修正中...";
 
   setError(targetError, "");
-  if (!prompt.trim()) {
-    setError(targetError, "テキストを入力してください。");
+  if (!prompt.trim() && attachments.length === 0) {
+    setError(targetError, "テキストまたは添付ファイルを入力してください。");
     return;
   }
 
@@ -407,6 +614,7 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
     designTemperature,
     forbidGameJsonUpdate,
     useDesignModel,
+    attachments,
   };
   const result =
     mode === "create"
@@ -443,11 +651,15 @@ async function runGeneration(mode: "create" | "modify"): Promise<void> {
     setError(targetError, "");
   }
   if (mode === "create") {
+    generateAttachments = [];
+    renderAttachments("create");
     setScreen("play");
   }
 
   if (mode === "modify") {
     modifyPrompt.value = "";
+    modifyAttachments = [];
+    renderAttachments("modify");
   }
 }
 
@@ -509,6 +721,14 @@ function bindEvents(): void {
     runGeneration("create");
   });
 
+  generateAttachmentButton.addEventListener("click", () => {
+    generateAttachmentInput.click();
+  });
+  generateAttachmentInput.addEventListener("change", async () => {
+    await appendFiles("create", generateAttachmentInput.files);
+    generateAttachmentInput.value = "";
+  });
+
   openProjectButton.addEventListener("click", async () => {
     if (!window.namagame?.openProjectDir) return;
     setError(generateError, "");
@@ -527,6 +747,14 @@ function bindEvents(): void {
   modifyButton.addEventListener("click", () => {
     goToConfig.classList.add("hidden");
     runGeneration("modify");
+  });
+
+  modifyAttachmentButton.addEventListener("click", () => {
+    modifyAttachmentInput.click();
+  });
+  modifyAttachmentInput.addEventListener("change", async () => {
+    await appendFiles("modify", modifyAttachmentInput.files);
+    modifyAttachmentInput.value = "";
   });
 
   cancelGeneration.addEventListener("click", async () => {
@@ -558,6 +786,10 @@ function bindEvents(): void {
     setError(generateError, "");
     modifyPrompt.value = "";
     generatePrompt.value = "";
+    generateAttachments = [];
+    modifyAttachments = [];
+    renderAttachments("create");
+    renderAttachments("modify");
     showPlayground();
     setScreen("generate");
   });
@@ -609,4 +841,6 @@ populateModels(modelSelect, "実装モデル", implModelOptions);
 setScreen("config");
 showPlayground();
 void refreshHistory();
+renderAttachments("create");
+renderAttachments("modify");
 bindEvents();
