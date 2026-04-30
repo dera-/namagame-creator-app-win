@@ -4,11 +4,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import AdmZip from "adm-zip";
 import {
   buildImportedProjectConversationPrompt,
   IMPLEMENT_PROMPT_HISTORY_MARKER,
 } from "../generation.js";
 import { createMainController } from "../controller.js";
+import { CHATLOG_FILE_NAME, createProjectZipWithChatlog } from "../project.js";
 
 type ResponseRecord = {
   model: unknown;
@@ -440,6 +442,79 @@ test("ゲーム生成: 入力テキスト・実装要件・設計モデル生成
   assert.equal(result.ok, true);
 });
 
+test("ゲーム生成: 添付ファイルをアセットとして配置しスキャンできる", async () => {
+  let targetDir = "";
+  const harness = createHarness({
+    onResponseCreate: async (body, _request, records) => {
+      if (records.length === 1) {
+        targetDir = getLastImplementTargetDir(harness.promptArgs);
+        await fs.access(path.join(targetDir, "assets", "user-attachments", "01-hero.txt"));
+        assert.ok(
+          getInputTexts(body.input).some((text) =>
+            text.includes("Akashic Engine からは /assets/user-attachments/01-hero.txt を assetPaths に指定")
+          )
+        );
+        return {
+          id: "impl-1",
+          output: [
+            {
+              type: "function_call",
+              name: "create_game_file",
+              arguments: JSON.stringify({
+                directoryName: targetDir,
+                filePath: "game.json",
+                content:
+                  '{"main":"./script/main.js","assets":{"main":{"type":"script","path":"script/main.js"}}}',
+              }),
+              call_id: "call-1",
+            },
+            {
+              type: "function_call",
+              name: "create_game_file",
+              arguments: JSON.stringify({
+                directoryName: targetDir,
+                filePath: "script/main.js",
+                content: "console.log('attachment');\n",
+              }),
+              call_id: "call-2",
+            },
+          ],
+          output_text: "",
+        };
+      }
+      return { id: "impl-2", output: [], output_text: jsonResult(targetDir, "attachment") };
+    },
+  });
+  await harness.controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design-model",
+    model: "impl-model",
+  });
+
+  const result = await harness.controller.generateGame({
+    mode: "create",
+    prompt: "",
+    useDesignModel: false,
+    attachments: [
+      {
+        id: "attachment-1",
+        name: "hero.txt",
+        mimeType: "text/plain",
+        dataBase64: Buffer.from("hero settings", "utf-8").toString("base64"),
+        size: 13,
+        kind: "text",
+        useAsAsset: true,
+        useAsContext: true,
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  const files = await fs.readdir(path.join(result.game!.projectDir!, "assets", "user-attachments"));
+  assert.ok(files.some((file) => file.endsWith("-hero.txt")));
+  assert.ok(harness.toolCalls.some((call) => call.name === "akashic_scan_asset"));
+});
+
 test("ゲーム生成: 既存プロジェクトを読み込める", async () => {
   const sourceDir = await createTempDir();
   await writeProject(sourceDir, "console.log('loaded');\n");
@@ -450,6 +525,79 @@ test("ゲーム生成: 既存プロジェクトを読み込める", async () => 
   assert.notEqual(loaded.game?.projectDir, sourceDir);
   const copiedMain = await fs.readFile(path.join(loaded.game!.projectDir!, "script", "main.js"), "utf-8");
   assert.equal(copiedMain, "console.log('loaded');\n");
+});
+
+test("プロジェクトダウンロード: chatlog.json に会話履歴を保存できる", async () => {
+  const harness = createHarness({
+    onResponseCreate: async (_body, _request, records) => {
+      const targetDir = getLastImplementTargetDir(harness.promptArgs);
+      await writeProject(targetDir, `console.log('create ${records.length}');\n`);
+      return { id: `impl-${records.length}`, output: [], output_text: jsonResult(targetDir, "chatlog-project") };
+    },
+  });
+  await harness.controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design-model",
+    model: "impl-model",
+  });
+  const generated = await harness.controller.generateGame({
+    mode: "create",
+    prompt: "会話履歴つきで保存",
+    useDesignModel: false,
+  });
+  assert.equal(generated.ok, true);
+
+  const outputPath = path.join(await createTempDir(), "download.zip");
+  await createProjectZipWithChatlog(
+    generated.game!.projectDir!,
+    outputPath,
+    harness.controller.getState().conversation
+  );
+
+  const zip = new AdmZip(outputPath);
+  const chatlogEntry = zip.getEntry(CHATLOG_FILE_NAME);
+  assert.ok(chatlogEntry);
+  const chatlog = JSON.parse(zip.readAsText(chatlogEntry!)) as Array<{ role: string; content: string }>;
+  assert.ok(chatlog.some((entry) => entry.role === "user" && entry.content === "会話履歴つきで保存"));
+  assert.ok(chatlog.some((entry) => entry.role === "assistant"));
+});
+
+test("ゲーム生成: 読み込み時に chatlog.json から会話履歴を復元する", async () => {
+  const sourceDir = await createTempDir();
+  await writeProject(sourceDir, "console.log('loaded');\n");
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([
+      { role: "user", content: "前の相談" },
+      { role: "assistant", content: "前の詳細", summary: "前の要約" },
+    ]),
+    "utf-8"
+  );
+  const harness = createHarness();
+
+  const loaded = await harness.controller.loadProjectDir(sourceDir);
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.errorMessage, undefined);
+  assert.deepEqual(harness.controller.getHistory().history, [
+    { role: "user", content: "前の相談" },
+    { role: "assistant", content: "前の要約" },
+  ]);
+});
+
+test("ゲーム生成: 不正な chatlog.json があってもプロジェクトを読み込みエラー表示用メッセージを返す", async () => {
+  const sourceDir = await createTempDir();
+  await writeProject(sourceDir, "console.log('loaded');\n");
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([{ role: "assistant", content: 999 }]),
+    "utf-8"
+  );
+  const harness = createHarness();
+
+  const loaded = await harness.controller.loadProjectDir(sourceDir);
+  assert.equal(loaded.ok, true);
+  assert.match(loaded.errorMessage ?? "", /chatlog\.json/);
+  assert.deepEqual(harness.controller.getHistory().history, []);
 });
 
 test("ゲーム生成キャンセル: APIを中断し、生成前のプロジェクト状態へ戻す", async () => {

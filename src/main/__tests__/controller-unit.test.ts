@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createMainController } from "../controller.js";
+import { CHATLOG_FILE_NAME } from "../project.js";
 
 async function createTempDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "namagame-controller-unit-"));
@@ -132,6 +133,56 @@ test("loadProjectDir はプロジェクトをコピーして ignored metadata �
   const historyState = controller.getState().conversation;
   assert.equal(historyState[0]?.pinned, true);
   assert.equal(historyState[0]?.hidden, true);
+});
+
+test("loadProjectDir は chatlog.json があれば会話履歴を読み込む", async () => {
+  const sourceDir = await createTempDir();
+  await createSourceProject(sourceDir);
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([
+      { role: "user", content: "前回の依頼" },
+      { role: "assistant", content: "前回の回答", summary: "前回の要約" },
+    ]),
+    "utf-8"
+  );
+  const { controller } = createControllerHarness({ skipApiKeyCheck: true });
+
+  await controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design",
+    model: "impl",
+  });
+  const result = await controller.loadProjectDir(sourceDir);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.errorMessage, undefined);
+  assert.deepEqual(controller.getHistory().history, [
+    { role: "user", content: "前回の依頼" },
+    { role: "assistant", content: "前回の要約" },
+  ]);
+});
+
+test("loadProjectDir は不正な chatlog.json があってもプロジェクトを読み込みエラーを返す", async () => {
+  const sourceDir = await createTempDir();
+  await createSourceProject(sourceDir);
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([{ role: "assistant", content: 42 }]),
+    "utf-8"
+  );
+  const { controller } = createControllerHarness({ skipApiKeyCheck: true });
+
+  await controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design",
+    model: "impl",
+  });
+  const result = await controller.loadProjectDir(sourceDir);
+
+  assert.equal(result.ok, true);
+  assert.match(result.errorMessage ?? "", /chatlog\.json/);
+  assert.deepEqual(controller.getHistory().history, []);
 });
 
 test("resetSession は状態を初期化し進行中生成を中断する", async () => {

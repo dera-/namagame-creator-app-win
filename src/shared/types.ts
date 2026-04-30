@@ -20,12 +20,26 @@ export interface AiConfig {
 
 export type GenerateMode = "create" | "modify";
 
+export type AttachmentKind = "text" | "image" | "audio";
+
+export interface InputAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataBase64: string;
+  size: number;
+  kind: AttachmentKind;
+  useAsAsset: boolean;
+  useAsContext: boolean;
+}
+
 export interface GenerateRequest {
   prompt: string;
   mode: GenerateMode;
   designTemperature?: number;
   forbidGameJsonUpdate?: boolean;
   useDesignModel?: boolean;
+  attachments?: InputAttachment[];
 }
 
 export interface GenerateResult {

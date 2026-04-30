@@ -99,6 +99,20 @@
             id="generatePrompt"
             placeholder="例: 2分間でスコアを稼ぐクリックゲーム。ランキング対応。"
           ></textarea>
+          <div class="attachment-block">
+            <div class="attachment-header">
+              <label for="generateAttachmentInput">添付ファイル</label>
+              <button id="generateAttachmentButton" type="button" class="ghost">ファイルを追加</button>
+            </div>
+            <input
+              id="generateAttachmentInput"
+              type="file"
+              class="hidden"
+              multiple
+              accept=".txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.ts,image/*,audio/*"
+            />
+            <div id="generateAttachmentList" class="attachment-list empty">添付ファイルはまだありません。</div>
+          </div>
 
           <div class="button-row">
             <button id="generateButton" class="primary">ゲーム生成</button>
@@ -196,6 +210,20 @@
                 id="modifyPrompt"
                 placeholder="改善したい点や追加したい要素を記述してください。"
               ></textarea>
+              <div class="attachment-block">
+                <div class="attachment-header">
+                  <label for="modifyAttachmentInput">添付ファイル</label>
+                  <button id="modifyAttachmentButton" type="button" class="ghost">ファイルを追加</button>
+                </div>
+                <input
+                  id="modifyAttachmentInput"
+                  type="file"
+                  class="hidden"
+                  multiple
+                  accept=".txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.ts,image/*,audio/*"
+                />
+                <div id="modifyAttachmentList" class="attachment-list empty">添付ファイルはまだありません。</div>
+              </div>
               <div class="button-row">
                 <button id="modifyButton" class="primary">ゲーム修正</button>
               </div>
