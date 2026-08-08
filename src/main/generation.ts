@@ -113,6 +113,13 @@ function selectConversationEntries(
   };
 }
 
+function toPromptConversationContent(entry: ConversationEntry): string {
+  if (entry.role === "assistant" && entry.summary?.trim()) {
+    return entry.summary;
+  }
+  return entry.content;
+}
+
 export function toUiHistory(
   entries: ConversationEntry[]
 ): Array<{ role: LlmRole; content: string }> {
@@ -148,7 +155,7 @@ function buildDeveloperInstruction(
     mode === "modify"
       ? `
 【重要: 既存プロジェクトの修正】
-- read_project_files を使ってプロジェクト内容を確認する。
+- read_project_files を使ってプロジェクト内容を確認する。最初は filePaths で game.json と主要スクリプトに絞り、必要なファイルだけ追加で読むこと。
 - 既存ファイルを最大限維持し、変更が必要な部分だけを編集すること。
 - 変更対象ファイルを先に列挙し、そのファイルのみを編集すること。
 - 不要なファイルの削除・全面置換は行わないこと。
@@ -453,7 +460,7 @@ export function createGenerationService({
         conversationContext.entries.forEach((entry) => {
           inputMessages.push({
             role: entry.role,
-            content: entry.content,
+            content: toPromptConversationContent(entry),
           });
         });
         if (designDoc) {

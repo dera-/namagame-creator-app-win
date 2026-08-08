@@ -584,6 +584,63 @@ test("ゲーム生成: 読み込み時に chatlog.json から会話履歴を復�
   ]);
 });
 
+test("ゲーム修正: chatlog の assistant 詳細ではなく summary を API 入力に使う", async () => {
+  const sourceDir = await createTempDir();
+  await writeProject(sourceDir, "console.log('loaded');\n");
+  await fs.writeFile(
+    path.join(sourceDir, CHATLOG_FILE_NAME),
+    JSON.stringify([
+      { role: "user", content: "前の相談" },
+      { role: "assistant", content: "前の詳細".repeat(1000), summary: "前の要約" },
+    ]),
+    "utf-8"
+  );
+  let loadedDir = "";
+  let firstInputTexts: string[] = [];
+  const harness = createHarness({
+    onResponseCreate: async (body, _request, records) => {
+      if (!body.previous_response_id) {
+        firstInputTexts = getInputTexts(body.input);
+        return {
+          id: "impl-summary-1",
+          output: [
+            {
+              type: "function_call",
+              name: "create_game_file",
+              arguments: JSON.stringify({
+                directoryName: loadedDir,
+                filePath: "script/main.js",
+                content: "console.log('summary history');\n",
+              }),
+              call_id: "call-summary-1",
+            },
+          ],
+          output_text: "",
+        };
+      }
+      return { id: `impl-summary-${records.length}`, output: [], output_text: jsonResult(loadedDir, "summary-history") };
+    },
+  });
+  await harness.controller.setAiConfig({
+    apiKey: "token",
+    designModel: "design-model",
+    model: "impl-model",
+  });
+  const loaded = await harness.controller.loadProjectDir(sourceDir);
+  assert.equal(loaded.ok, true);
+  loadedDir = loaded.game!.projectDir!;
+
+  const result = await harness.controller.generateGame({
+    mode: "modify",
+    prompt: "履歴を踏まえて修正",
+    useDesignModel: false,
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(firstInputTexts.includes("前の要約"));
+  assert.ok(firstInputTexts.every((text) => !text.includes("前の詳細")));
+});
+
 test("ゲーム生成: 不正な chatlog.json があってもプロジェクトを読み込みエラー表示用メッセージを返す", async () => {
   const sourceDir = await createTempDir();
   await writeProject(sourceDir, "console.log('loaded');\n");

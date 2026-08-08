@@ -314,6 +314,15 @@ function toToolOutputString(payload: unknown): string {
   }
 }
 
+function truncateToolOutput(output: string): string {
+  const parsedLimit = Number(process.env.MCP_TOOL_OUTPUT_MAX_CHARS ?? 120_000);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.floor(parsedLimit) : 120_000;
+  if (output.length <= limit) {
+    return output;
+  }
+  return `${output.slice(0, limit)}\n\n[truncated tool output: ${output.length - limit} chars omitted]`;
+}
+
 export async function callMcpTool(
   baseUrl: string,
   name: string,
@@ -343,7 +352,7 @@ export async function callMcpTool(
   }
 
   const data = await response.json().catch(() => null);
-  const output = toToolOutputString(data);
+  const output = truncateToolOutput(toToolOutputString(data));
   console.log(`[mcp] result ${name}: ${output.slice(0, 1000)}`);
   return output;
 }

@@ -97,18 +97,19 @@ declare global {
 }
 
 const designModelOptions = [
-  "gpt-5.4-mini",
-  "gpt-5.4-nano",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.6",
   "gpt-5-mini",
   "gpt-5-nano",
 ];
 
 const implModelOptions = [
+  "gpt-5.6",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
   "gpt-5.4",
   "gpt-5.3-codex",
-  "gpt-5.2-codex",
-  "gpt-5.2",
-  "gpt-5.1",
   "gpt-5"
 ];
 
@@ -368,18 +369,6 @@ function setLoading(isLoading: boolean, message = "生成中...", cancellable = 
 
 function setError(element: HTMLElement, message?: string): void {
   element.textContent = message || "";
-}
-
-function setConfigModelWarning(model: string): void {
-  const timeoutRiskModels = new Set(["gpt-5.1-codex"]);
-  if (timeoutRiskModels.has(model)) {
-    configModelWarning.textContent =
-      "この実装モデルは処理に時間がかかり、最悪の場合はタイムアウトする可能性があります。タイムアウトした場合は別の実装モデルに切り替えてください。";
-    configModelWarning.classList.remove("hidden");
-    return;
-  }
-  configModelWarning.textContent = "";
-  configModelWarning.classList.add("hidden");
 }
 
 function renderHistory(): void {
@@ -708,10 +697,10 @@ function bindEvents(): void {
   //   setDebugOpenMode(debugOpenMode.value);
   // });
 
-  modelSelect.addEventListener("change", () => {
-    setConfigModelWarning(modelSelect.value);
-  });
-  setConfigModelWarning(modelSelect.value);
+  // modelSelect.addEventListener("change", () => {
+  //   setConfigModelWarning(modelSelect.value);
+  // });
+  // setConfigModelWarning(modelSelect.value);
 
   configSubmit.addEventListener("click", () => {
     handleConfigSubmit();
