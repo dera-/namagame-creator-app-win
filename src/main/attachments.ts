@@ -111,8 +111,17 @@ export function buildAttachmentPromptNotice(attachments: PreparedAttachment[]): 
     lines.push(`  用途: ${formatPurposes(attachment)}`);
     if (attachment.useAsAsset && attachment.assetRelativePath) {
       lines.push(`  アセット配置先: ${attachment.assetRelativePath}`);
-      lines.push(`  Akashic Engine からは /${attachment.assetRelativePath} を assetPaths に指定して読み込んでください。`);
-      lines.push("  画像は scene.asset.getImage(パス)、音声は scene.asset.getAudio(拡張子なしのパス)、テキストは scene.asset.getTextContent(パス) などで取得してください。");
+      if (attachment.kind === "font") {
+        lines.push(
+          "  注意: ニコ生ゲームのAkashic EngineはTTF/OTF/WOFFを実行時フォントとして直接読み込めません。"
+        );
+        lines.push(
+          "  このファイルはプロジェクトに同梱するフォント資料です。ゲーム内で確実に同じ書体を使う必要がある場合は、対応するビットマップフォント（画像+glyph map）を別途用意して g.BitmapFont を利用してください。"
+        );
+      } else {
+        lines.push(`  Akashic Engine からは /${attachment.assetRelativePath} を assetPaths に指定して読み込んでください。`);
+        lines.push("  画像は scene.asset.getImage(パス)、音声は scene.asset.getAudio(拡張子なしのパス)、テキストは scene.asset.getTextContent(パス) などで取得してください。");
+      }
     }
     if (attachment.useAsContext) {
       lines.push("  追加情報としても参照してください。");

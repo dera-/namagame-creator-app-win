@@ -20,7 +20,7 @@ export interface AiConfig {
 
 export type GenerateMode = "create" | "modify";
 
-export type AttachmentKind = "text" | "image" | "audio";
+export type AttachmentKind = "text" | "image" | "audio" | "font";
 
 export interface InputAttachment {
   id: string;

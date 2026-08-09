@@ -109,8 +109,9 @@
               type="file"
               class="hidden"
               multiple
-              accept=".txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.ts,image/*,audio/*"
+              accept=".txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.ts,image/*,audio/*,.ttf,.otf,.woff,.woff2"
             />
+            <p class="note">音声はゲームアセットとして自動配置されます。TTF などのフォントファイルは添付・同梱できますが、ニコ生ゲームで確実に使うにはビットマップフォント（画像＋glyph map）が必要です。</p>
             <div id="generateAttachmentList" class="attachment-list empty">添付ファイルはまだありません。</div>
           </div>
 
@@ -215,14 +216,15 @@
                   <label for="modifyAttachmentInput">添付ファイル</label>
                   <button id="modifyAttachmentButton" type="button" class="ghost">ファイルを追加</button>
                 </div>
-                <input
-                  id="modifyAttachmentInput"
+            <input
+              id="modifyAttachmentInput"
                   type="file"
                   class="hidden"
                   multiple
-                  accept=".txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.ts,image/*,audio/*"
-                />
-                <div id="modifyAttachmentList" class="attachment-list empty">添付ファイルはまだありません。</div>
+              accept=".txt,.md,.markdown,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.ts,image/*,audio/*,.ttf,.otf,.woff,.woff2"
+            />
+            <p class="note">音声はゲームアセットとして自動配置されます。TTF などのフォントファイルは添付・同梱できますが、ニコ生ゲームで確実に使うにはビットマップフォント（画像＋glyph map）が必要です。</p>
+            <div id="modifyAttachmentList" class="attachment-list empty">添付ファイルはまだありません。</div>
               </div>
               <div class="button-row">
                 <button id="modifyButton" class="primary">ゲーム修正</button>

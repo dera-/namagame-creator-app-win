@@ -3,7 +3,7 @@ type UpdateStatus = {
   message?: string;
 };
 
-type AttachmentKind = "text" | "image" | "audio";
+type AttachmentKind = "text" | "image" | "audio" | "font";
 
 type InputAttachment = {
   id: string;
@@ -100,6 +100,8 @@ const designModelOptions = [
   "gpt-5.6-terra",
   "gpt-5.6-luna",
   "gpt-5.6",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
   "gpt-5-mini",
   "gpt-5-nano",
 ];
@@ -110,6 +112,7 @@ const implModelOptions = [
   "gpt-5.6-terra",
   "gpt-5.4",
   "gpt-5.3-codex",
+  "gpt-5.2-codex",
   "gpt-5"
 ];
 
@@ -219,6 +222,9 @@ function getAttachmentKind(file: File): AttachmentKind | null {
   }
   if (file.type.startsWith("audio/")) {
     return "audio";
+  }
+  if (["ttf", "otf", "woff", "woff2"].includes(ext)) {
+    return "font";
   }
   return null;
 }
@@ -345,7 +351,9 @@ async function appendFiles(mode: "create" | "modify", files: FileList | null): P
       dataBase64,
       size: file.size,
       kind,
-      useAsAsset: false,
+      // バイナリのメディアは、添付した時点でゲームプロジェクトにも配置する。
+      // これにより、音声は「ゲームアセットとして使う」のチェック漏れで失われない。
+      useAsAsset: kind === "audio" || kind === "font",
       useAsContext: true,
     });
   }
