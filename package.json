@@ -1,6 +1,6 @@
 {
   "name": "@dera-/namagame-creator-app-win",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Nicolive game generator",
   "main": "script/main.js",
   "targets": {
@@ -23,19 +23,19 @@
   "license": "MIT",
   "packageManager": "pnpm@10.26.2",
   "dependencies": {
-    "@akashic/akashic-cli-commons": "~1.0.3",
-    "@akashic/akashic-cli-export": "~2.0.12",
-    "@akashic/akashic-cli-sandbox": "^2.0.7",
-    "@akashic/akashic-cli-serve": "^2.0.19",
-    "adm-zip": "^0.5.16",
+    "@akashic/akashic-cli-commons": "~1.0.5",
+    "@akashic/akashic-cli-export": "~2.0.18",
+    "@akashic/akashic-cli-sandbox": "^2.0.11",
+    "@akashic/akashic-cli-serve": "~2.0.21",
+    "adm-zip": "^0.6.0",
     "electron-updater": "^6.1.7",
     "openai": "^6.15.0"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
     "@types/node": "^25.0.3",
-    "electron": "^32.0.0",
-    "electron-builder": "^24.13.3",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
