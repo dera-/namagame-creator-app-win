@@ -12,7 +12,7 @@
     "build": "tsc -p ./ && node tools/copy-assets.js",
     "start": "npm run build && electron .",
     "prepare:mcp": "node tools/prepare-embedded-mcp.js",
-    "pack": "npm run prepare:mcp && npm run build && node tools/validate-rollup-native.cjs && electron-builder && node tools/verify-embedded-mcp.js",
+    "pack": "npm run prepare:mcp && npm run build && node tools/validate-rollup-native.cjs && electron-builder --publish never && node tools/verify-embedded-mcp.js",
     "test": "node --import tsx --test src/main/__tests__/*.test.ts"
   },
   "repository": {
