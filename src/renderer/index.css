@@ -105,6 +105,67 @@ textarea {
   background: #fefcf8;
 }
 
+.model-picker-source {
+  display: none;
+}
+
+.model-picker {
+  position: relative;
+  width: 100%;
+}
+
+.model-picker-button,
+.model-picker-option {
+  width: 100%;
+  border: 1px solid #d8cdbf;
+  background: #fefcf8;
+  color: #1c1b19;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.model-picker-button {
+  min-height: 40px;
+  border-radius: 10px;
+  padding: 10px 38px 10px 12px;
+  position: relative;
+}
+
+.model-picker-button::after {
+  content: "⌄";
+  position: absolute;
+  right: 13px;
+  top: 7px;
+  font-size: 20px;
+}
+
+.model-picker-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #d8cdbf;
+  border-radius: 10px;
+  background: #fefcf8;
+  box-shadow: 0 8px 18px rgba(25, 20, 10, 0.16);
+}
+
+.model-picker-option {
+  border: 0;
+  border-radius: 0;
+  padding: 10px 12px;
+}
+
+.model-picker-option:hover,
+.model-picker-option:focus-visible {
+  background: #eee3d3;
+  outline: none;
+}
+
 input[type="checkbox"] {
   width: auto;
   margin: 0;

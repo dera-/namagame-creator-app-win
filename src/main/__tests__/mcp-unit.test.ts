@@ -77,3 +77,18 @@ test("callMcpTool は fetch 非200系をエラー文字列に変換する", asyn
     globalThis.fetch = originalFetch;
   }
 });
+
+test("callMcpTool は通信失敗をMCP接続エラーとして返す", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new TypeError("fetch failed");
+  }) as unknown as typeof fetch;
+
+  try {
+    const result = await callMcpTool("http://mock-mcp", "tool", "{}");
+    assert.match(result, /MCPサーバーへの接続に失敗しました/);
+    assert.match(result, /fetch failed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

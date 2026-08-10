@@ -183,6 +183,14 @@ let useDesignModel = true;
 let generateAttachments: InputAttachment[] = [];
 let modifyAttachments: InputAttachment[] = [];
 
+type ModelPicker = {
+  button: HTMLButtonElement;
+  menu: HTMLDivElement;
+  label: string;
+};
+
+const modelPickers = new Map<HTMLSelectElement, ModelPicker>();
+
 function formatFileSize(size: number): string {
   if (size < 1024) {
     return `${size} B`;
@@ -540,6 +548,94 @@ function populateModels(
   });
 }
 
+function updateModelPicker(select: HTMLSelectElement): void {
+  const picker = modelPickers.get(select);
+  if (!picker) return;
+  const selectedOption = select.selectedOptions[0];
+  picker.button.textContent = selectedOption?.textContent || `${picker.label}を選択`;
+}
+
+function createModelPicker(
+  select: HTMLSelectElement,
+  label: string,
+  labelId: string
+): void {
+  const picker = document.createElement("div");
+  picker.className = "model-picker";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "model-picker-button";
+  button.setAttribute("aria-labelledby", labelId);
+  button.setAttribute("aria-haspopup", "listbox");
+  button.setAttribute("aria-expanded", "false");
+
+  const menu = document.createElement("div");
+  menu.className = "model-picker-menu hidden";
+  menu.setAttribute("role", "listbox");
+  menu.setAttribute("aria-labelledby", labelId);
+
+  const close = () => {
+    menu.classList.add("hidden");
+    button.setAttribute("aria-expanded", "false");
+  };
+  const choose = (value: string) => {
+    const changed = select.value !== value;
+    select.value = value;
+    updateModelPicker(select);
+    close();
+    if (changed) {
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  };
+
+  Array.from(select.options).forEach((option) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "model-picker-option";
+    item.textContent = option.textContent;
+    item.setAttribute("role", "option");
+    item.addEventListener("pointerdown", (event) => {
+      // click を待たずに確定・閉鎖するため、マウス/タッチの押下時に選択する。
+      event.preventDefault();
+      choose(option.value);
+    });
+    item.addEventListener("click", () => choose(option.value));
+    menu.appendChild(item);
+  });
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const opening = menu.classList.contains("hidden");
+    document.querySelectorAll<HTMLElement>(".model-picker-menu").forEach((otherMenu) => {
+      otherMenu.classList.add("hidden");
+    });
+    document.querySelectorAll<HTMLButtonElement>(".model-picker-button").forEach((otherButton) => {
+      otherButton.setAttribute("aria-expanded", "false");
+    });
+    if (opening) {
+      menu.classList.remove("hidden");
+      button.setAttribute("aria-expanded", "true");
+    }
+  });
+  picker.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      close();
+      button.focus();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!picker.contains(event.target as Node)) close();
+  });
+
+  select.classList.add("model-picker-source");
+  select.setAttribute("aria-hidden", "true");
+  select.tabIndex = -1;
+  picker.append(button, menu);
+  select.insertAdjacentElement("afterend", picker);
+  modelPickers.set(select, { button, menu, label });
+  updateModelPicker(select);
+}
+
 async function handleConfigSubmit(): Promise<void> {
   setError(configError, "");
   const designModel = designModelSelect.value.trim();
@@ -557,6 +653,7 @@ async function handleConfigSubmit(): Promise<void> {
   }
   const resolvedDesignModel = designModel || model;
   designModelSelect.value = resolvedDesignModel;
+  updateModelPicker(designModelSelect);
 
   setLoading(true, "APIキーを確認中...", false);
   const timeoutMs = 12000;
@@ -835,6 +932,8 @@ function bindEvents(): void {
 
 populateModels(designModelSelect, "設計モデル", designModelOptions);
 populateModels(modelSelect, "実装モデル", implModelOptions);
+createModelPicker(designModelSelect, "設計モデル", "designModelLabel");
+createModelPicker(modelSelect, "実装モデル", "modelLabel");
 setScreen("config");
 showPlayground();
 void refreshHistory();

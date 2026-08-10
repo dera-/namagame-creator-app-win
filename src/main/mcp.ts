@@ -102,12 +102,23 @@ function resolveMcpServerEntry(): { entryPath: string; serverDir: string } {
   return { entryPath, serverDir: path.dirname(entryPath) };
 }
 
-function getNodeBinary(): string {
-  return process.env.NODE_BINARY ?? "node";
+function getNodeLaunch(): { command: string; env: NodeJS.ProcessEnv } {
+  // 配布版の利用者に Node.js を別途インストールさせないため、Electron に内蔵された
+  // Node.js で MCP を起動する。NODE_BINARY は開発・テスト時の明示的な上書き用。
+  if (process.env.NODE_BINARY) {
+    return { command: process.env.NODE_BINARY, env: process.env };
+  }
+  if (process.versions.electron) {
+    return {
+      command: process.execPath,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    };
+  }
+  return { command: "node", env: process.env };
 }
 
 function getNpmBinary(): string {
-  return process.env.NPM_BINARY ?? "npm";
+  return process.env.NPM_BINARY ?? (process.platform === "win32" ? "npm.cmd" : "npm");
 }
 
 function runCommand(
@@ -119,7 +130,8 @@ function runCommand(
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      shell: true,
+      // shell 経由だと Windows の Program Files など、空白を含むパスの引数が壊れる。
+      shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout?.on("data", (chunk) => console.log(String(chunk)));
@@ -252,40 +264,63 @@ async function startLocalMcpServer(signal?: AbortSignal): Promise<McpServerInfo>
   await ensureMcpDependencies(serverDir);
   const port = await getAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
+  const nodeLaunch = getNodeLaunch();
 
-  const child = spawn(getNodeBinary(), [entryPath], {
+  const child = spawn(nodeLaunch.command, [entryPath], {
     env: {
-      ...process.env,
+      ...nodeLaunch.env,
       PORT: String(port),
     },
     stdio: ["ignore", "pipe", "pipe"],
-    shell: true,
+    shell: false,
   });
+  let childFailure: Error | null = null;
   child.stdout?.on("data", (chunk) => console.log(String(chunk)));
   child.stderr?.on("data", (chunk) => console.error(String(chunk)));
-  child.on("exit", () => {
+  child.on("error", (error) => {
+    childFailure = new Error(`MCPサーバーを起動できません: ${error.message}`);
+  });
+  child.on("exit", (code, exitSignal) => {
+    if (!childFailure) {
+      childFailure = new Error(
+        `MCPサーバーが起動直後に終了しました (code=${code ?? "null"}, signal=${exitSignal ?? "null"})。`
+      );
+    }
     if (mcpServer?.process === child) {
       mcpServer = null;
     }
   });
 
-  const deadline = Date.now() + 15000;
-  let lastError: unknown = null;
-  while (Date.now() < deadline) {
-    if (signal?.aborted) {
-      throw new Error("MCPサーバー起動がキャンセルされました。");
+  try {
+    const deadline = Date.now() + 15000;
+    let lastError: unknown = null;
+    while (Date.now() < deadline) {
+      if (signal?.aborted) {
+        throw new Error("MCPサーバー起動がキャンセルされました。");
+      }
+      if (childFailure) {
+        throw childFailure;
+      }
+      try {
+        const tools = await fetchMcpTools(baseUrl, signal);
+        return { baseUrl, port, process: child, tools };
+      } catch (error) {
+        lastError = error;
+        if (childFailure) {
+          throw childFailure;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
     }
-    try {
-      const tools = await fetchMcpTools(baseUrl, signal);
-      return { baseUrl, port, process: child, tools };
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 300));
+    throw lastError instanceof Error
+      ? new Error(`MCPサーバーの起動に失敗しました: ${lastError.message}`)
+      : new Error("MCPサーバーの起動に失敗しました。");
+  } catch (error) {
+    if (child.exitCode == null && !child.killed) {
+      child.kill();
     }
+    throw error;
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("MCPサーバーの起動に失敗しました。");
 }
 
 export async function ensureMcpServer(signal?: AbortSignal): Promise<McpServerInfo> {
@@ -340,12 +375,18 @@ export async function callMcpTool(
 
   console.log(`[mcp] call ${name}: ${JSON.stringify(args)}`);
 
-  const response = await fetch(`${baseUrl}/proxy/call`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, arguments: args }),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/proxy/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, arguments: args }),
+      signal,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "不明な通信エラー";
+    return JSON.stringify({ error: `MCPサーバーへの接続に失敗しました: ${message}` });
+  }
 
   if (!response.ok) {
     return JSON.stringify({ error: `ツール呼び出しに失敗しました: ${response.status}` });
