@@ -130,8 +130,9 @@ function runCommand(
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      // shell 経由だと Windows の Program Files など、空白を含むパスの引数が壊れる。
-      shell: false,
+      // Windows では npm.cmd を cmd.exe 経由で起動する必要がある。ここで渡す引数は
+      // 固定の npm install のみで、MCP 本体プロセスの起動には shell を使わない。
+      shell: process.platform === "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout?.on("data", (chunk) => console.log(String(chunk)));
@@ -148,6 +149,20 @@ async function ensureMcpDependencies(serverDir: string): Promise<void> {
   const nodeModulesDir = path.join(serverDir, "node_modules");
   if (fsSync.existsSync(nodeModulesDir)) {
     return;
+  }
+  let isPackaged = false;
+  try {
+    const electronModule = process.versions.electron
+      ? (require("electron") as { app?: { isPackaged?: boolean } })
+      : null;
+    isPackaged = Boolean(electronModule?.app?.isPackaged);
+  } catch {
+    // Electron を利用しない単体テストでは npm インストールのフォールバックを許可する。
+  }
+  if (isPackaged) {
+    throw new Error(
+      "配布アプリに akashic-mcp の依存パッケージが同梱されていません。最新版へ更新してください。"
+    );
   }
   try {
     await runCommand(getNpmBinary(), ["install"], { cwd: serverDir, env: process.env });

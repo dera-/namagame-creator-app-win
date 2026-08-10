@@ -1,6 +1,6 @@
 {
   "name": "@dera-/namagame-creator-app-win",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Nicolive game generator",
   "main": "script/main.js",
   "targets": {
@@ -12,7 +12,7 @@
     "build": "tsc -p ./ && node tools/copy-assets.js",
     "start": "npm run build && electron .",
     "prepare:mcp": "node tools/prepare-embedded-mcp.js",
-    "pack": "npm run prepare:mcp && npm run build && node tools/validate-rollup-native.cjs && electron-builder",
+    "pack": "npm run prepare:mcp && npm run build && node tools/validate-rollup-native.cjs && electron-builder && node tools/verify-embedded-mcp.js",
     "test": "node --import tsx --test src/main/__tests__/*.test.ts"
   },
   "repository": {
@@ -76,6 +76,13 @@
       {
         "from": "akashic-mcp",
         "to": "akashic-mcp",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "tmp/embedded-mcp-node-modules",
+        "to": "akashic-mcp/node_modules",
         "filter": [
           "**/*"
         ]
