@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = path.join(root, "dist");
 const expectedSuffix = path.join(
-  "resources",
   "akashic-mcp",
   "node_modules",
   "@modelcontextprotocol",
@@ -18,7 +17,10 @@ if (!fs.existsSync(distDir)) {
 }
 
 const packagedFiles = fs.readdirSync(distDir, { recursive: true });
-const found = packagedFiles.some((entry) => String(entry).endsWith(expectedSuffix));
+const found = packagedFiles.some((entry) => {
+  const normalized = String(entry).replace(/\\/g, "/");
+  return normalized.endsWith(expectedSuffix.replace(/\\/g, "/"));
+});
 if (!found) {
   throw new Error("配布物に akashic-mcp の依存パッケージが同梱されていません。");
 }
