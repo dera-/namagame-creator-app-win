@@ -72,17 +72,11 @@
       "node_modules/@akashic/akashic-cli-export/node_modules/@rollup/**",
       "node_modules/@akashic/akashic-cli-export/node_modules/rollup/dist/*.node"
     ],
+    "afterPack": "./tools/after-pack-mcp.js",
     "extraResources": [
       {
         "from": "akashic-mcp",
         "to": "akashic-mcp",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "tmp/embedded-mcp-node-modules",
-        "to": "akashic-mcp/node_modules",
         "filter": [
           "**/*"
         ]
